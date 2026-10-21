@@ -197,9 +197,20 @@ export default function App() {
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
+      showToast('Login realizado com sucesso!', 'success');
     } catch (e: any) {
-      showToast('Erro ao fazer login: ' + e.message, 'error');
+      console.error('Firebase Login Error:', e);
+      if (e?.code === 'auth/unauthorized-domain') {
+        showToast(`Domínio não autorizado no Firebase! Adicione "${window.location.hostname}" em Firebase Console > Authentication > Settings > Authorized domains.`, 'error');
+      } else if (e?.code === 'auth/popup-blocked') {
+        showToast('O navegador bloqueou a janela pop-up do Google. Permita pop-ups para fazer login.', 'error');
+      } else if (e?.code === 'auth/popup-closed-by-user') {
+        showToast('Janela de login fechada antes da conclusão.', 'info');
+      } else {
+        showToast('Erro ao fazer login: ' + (e?.message || e), 'error');
+      }
     }
   };
 

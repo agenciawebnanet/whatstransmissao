@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { apiRouter } from '../src/apiHandlers';
+import { apiRouter } from '../src/apiHandlers.js';
 
 const app = express();
 app.use(cors({ origin: '*', credentials: false }));

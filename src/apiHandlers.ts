@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
-import * as adminNamespace from 'firebase-admin';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
+import * as adminNamespace from 'firebase-admin';
 import crypto from 'crypto';
 
 const admin: any = (adminNamespace as any).default || adminNamespace;
@@ -28,56 +29,32 @@ const FIREBASE_CONFIG = {
    Firebase Admin Initialization (100% Direct Firestore Persistence)
    Supports FIREBASE_SERVICE_ACCOUNT env var (JSON string or Base64) in Vercel
    ========================================================================== */
-let _db: Firestore | null = null;
-
-function getDb(): Firestore {
-  if (_db) return _db;
-
-  const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
-  if (!serviceAccountRaw) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT não configurado');
-  }
-
-  let certObj: any = null;
+// Inicializa o Firebase para cada instância da Vercel
+if (!getApps().length) {
   try {
+    const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT || '{}';
+    let serviceAccount: any = null;
     const trimmed = serviceAccountRaw.trim();
     if (trimmed.startsWith('{')) {
-      certObj = JSON.parse(trimmed);
+      serviceAccount = JSON.parse(trimmed);
     } else {
       const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
-      certObj = JSON.parse(decoded);
+      serviceAccount = JSON.parse(decoded);
     }
-  } catch (err: any) {
-    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err);
-    throw new Error('FIREBASE_SERVICE_ACCOUNT formato inválido: ' + err.message);
+    initializeApp({
+      credential: cert(serviceAccount),
+      projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID || FIREBASE_CONFIG.projectId
+    });
+    console.log('Firebase Admin inicializado com sucesso.');
+  } catch (error) {
+    console.error('Erro ao inicializar Firebase Admin:', error);
   }
+}
 
-  const projectId = certObj?.project_id || process.env.FIREBASE_PROJECT_ID || FIREBASE_CONFIG.projectId;
+const db = getFirestore(FIREBASE_CONFIG.firestoreDatabaseId);
 
-  if (!admin.apps || admin.apps.length === 0) {
-    try {
-      if (certObj && certObj.client_email && certObj.private_key) {
-        admin.initializeApp({
-          credential: admin.credential.cert(certObj),
-          projectId
-        });
-      } else {
-        admin.initializeApp({
-          projectId
-        });
-      }
-    } catch (err: any) {
-      console.warn('Firebase Admin initializeApp warning:', err?.message || err);
-    }
-  }
-
-  const databaseId = FIREBASE_CONFIG.firestoreDatabaseId;
-  try {
-    _db = getFirestore(databaseId);
-  } catch {
-    _db = getFirestore();
-  }
-  return _db;
+function getDb(): Firestore {
+  return db;
 }
 
 /* ==========================================================================

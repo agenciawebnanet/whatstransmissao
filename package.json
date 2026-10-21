@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite --port=3000 --host=0.0.0.0\" \"tsx server.ts\"",
+    "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --platform=node --packages=external --bundle --outfile=dist/server.js",
     "preview": "vite preview",
     "start": "node dist/server.js",

@@ -1,27 +1,13 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import express from 'express';
-import cors from 'cors';
 import { defineConfig } from 'vite';
-import { apiRouter } from './src/apiHandlers.js';
 
 export default defineConfig(() => {
-  const apiApp = express();
-  apiApp.use(cors());
-  apiApp.use(express.json());
-  apiApp.use(apiRouter);
-
   return {
     plugins: [
-      react(), 
+      react(),
       tailwindcss(),
-      {
-        name: 'express-api-middleware',
-        configureServer(server) {
-          server.middlewares.use(apiApp);
-        }
-      }
     ],
     resolve: {
       alias: {

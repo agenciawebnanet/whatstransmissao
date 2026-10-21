@@ -218,6 +218,14 @@ export default function App() {
     await signOut(auth);
   };
 
+  const getAdminAuthHeaders = async () => {
+    const token = await auth.currentUser?.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   // CLIENT ACTIONS
   const handleOpenNewClientModal = () => {
     setEditingClient(null);
@@ -249,9 +257,10 @@ export default function App() {
         }).catch(err => console.warn('Firestore updateDoc warning:', err));
 
         // Fallback server API update
+        const headers = await getAdminAuthHeaders();
         await fetch('/api/client/save', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             id: editingClient.id,
             name: clientForm.name.trim(),
@@ -271,9 +280,10 @@ export default function App() {
           createdAt: new Date().toISOString()
         }).catch(async (err) => {
           console.warn('Firestore addDoc fallback:', err);
+          const headers = await getAdminAuthHeaders();
           await fetch('/api/client/save', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               name: clientForm.name.trim(),
               phone: clientForm.phone.trim(),
@@ -315,10 +325,11 @@ export default function App() {
             console.warn('Firestore deleteDoc notice:', err);
           });
 
-          // 2. Delete via backend server API
+          // 2. Delete via backend server API with Admin Bearer Token
+          const headers = await getAdminAuthHeaders();
           await fetch('/api/client/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ client_id: client.id })
           }).catch(err => {
             console.warn('Server delete client notice:', err);
@@ -397,10 +408,11 @@ export default function App() {
       await logAction('UPDATE_SALE_STATUS', `Venda ${saleId} atualizada para: ${newStatus}`);
 
       if (newStatus === 'pago') {
-        // Also call backend API to sync order and create license
+        // Also call backend API to sync order and create license with Admin Bearer Token
+        const headers = await getAdminAuthHeaders();
         await fetch('/api/order/confirm-manual', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ order_id: saleId })
         }).catch(err => console.warn('Order confirm API notice:', err));
 
@@ -451,9 +463,10 @@ export default function App() {
         setSales(prev => prev.filter(s => s.id !== sale.id));
         try {
           await deleteDoc(doc(db, 'sales', sale.id)).catch(e => console.warn(e));
+          const headers = await getAdminAuthHeaders();
           await fetch('/api/sale/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ sale_id: sale.id })
           }).catch(e => console.warn(e));
 
@@ -497,6 +510,14 @@ export default function App() {
             deviceInfo: null,
             status: 'inativa'
           });
+
+          const headers = await getAdminAuthHeaders();
+          await fetch('/api/license/deactivate', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ key: license.key })
+          }).catch(e => console.warn(e));
+
           await logAction('RESET_DEVICE', `Dispositivo resetado para a licença ${license.key}`);
           showToast('Dispositivo liberado com sucesso para nova instalação!', 'success');
         } catch (err: any) {
@@ -522,9 +543,10 @@ export default function App() {
         setLicenses(prev => prev.filter(l => l.id !== license.id));
         try {
           await deleteDoc(doc(db, 'licenses', license.id)).catch(e => console.warn(e));
+          const headers = await getAdminAuthHeaders();
           await fetch('/api/license/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ license_id: license.id })
           }).catch(e => console.warn(e));
 
@@ -587,9 +609,10 @@ export default function App() {
         setTrials(prev => prev.filter(t => t.id !== trial.id));
         try {
           await deleteDoc(doc(db, 'trials', trial.id)).catch(e => console.warn(e));
+          const headers = await getAdminAuthHeaders();
           await fetch('/api/trial/delete', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({ trial_id: trial.id })
           }).catch(e => console.warn(e));
 
@@ -605,6 +628,7 @@ export default function App() {
       }
     });
   };
+
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);

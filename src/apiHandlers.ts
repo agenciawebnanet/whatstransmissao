@@ -1,10 +1,28 @@
-import express, { Request, Response } from 'express';
+import 'dotenv/config';
+import express, { Request, Response, NextFunction } from 'express';
 import * as adminNamespace from 'firebase-admin';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import crypto from 'crypto';
-import firebaseConfig from '../firebase-applet-config.json';
 
 const admin: any = (adminNamespace as any).default || adminNamespace;
+
+/* ==========================================================================
+   Environment & Security Assertions (Fail-Fast on Missing Secrets)
+   ========================================================================== */
+if (!process.env.HMAC_SECRET) {
+  throw new Error('HMAC_SECRET não configurado');
+}
+
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  throw new Error('FIREBASE_SERVICE_ACCOUNT não configurado');
+}
+
+const HMAC_SECRET: string = process.env.HMAC_SECRET;
+
+const FIREBASE_CONFIG = {
+  projectId: 'gen-lang-client-0919034007',
+  firestoreDatabaseId: 'ai-studio-56f22fec-68b1-4f1c-9084-ced03b254908'
+};
 
 /* ==========================================================================
    Firebase Admin Initialization (100% Direct Firestore Persistence)
@@ -15,28 +33,30 @@ let _db: Firestore | null = null;
 function getDb(): Firestore {
   if (_db) return _db;
 
-  if (!admin.apps || admin.apps.length === 0) {
-    const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
-    let certObj: any = null;
+  const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!serviceAccountRaw) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT não configurado');
+  }
 
-    if (serviceAccountRaw) {
-      try {
-        const trimmed = serviceAccountRaw.trim();
-        if (trimmed.startsWith('{')) {
-          certObj = JSON.parse(trimmed);
-        } else {
-          const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
-          certObj = JSON.parse(decoded);
-        }
-      } catch (err) {
-        console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err);
-      }
+  let certObj: any = null;
+  try {
+    const trimmed = serviceAccountRaw.trim();
+    if (trimmed.startsWith('{')) {
+      certObj = JSON.parse(trimmed);
+    } else {
+      const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+      certObj = JSON.parse(decoded);
     }
+  } catch (err: any) {
+    console.error('Failed to parse FIREBASE_SERVICE_ACCOUNT env var:', err);
+    throw new Error('FIREBASE_SERVICE_ACCOUNT formato inválido: ' + err.message);
+  }
 
-    const projectId = certObj?.project_id || process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'gen-lang-client-0919034007';
+  const projectId = certObj?.project_id || process.env.FIREBASE_PROJECT_ID || FIREBASE_CONFIG.projectId;
 
+  if (!admin.apps || admin.apps.length === 0) {
     try {
-      if (certObj) {
+      if (certObj && certObj.client_email && certObj.private_key) {
         admin.initializeApp({
           credential: admin.credential.cert(certObj),
           projectId
@@ -51,7 +71,7 @@ function getDb(): Firestore {
     }
   }
 
-  const databaseId = firebaseConfig.firestoreDatabaseId || 'ai-studio-56f22fec-68b1-4f1c-9084-ced03b254908';
+  const databaseId = FIREBASE_CONFIG.firestoreDatabaseId;
   try {
     _db = getFirestore(databaseId);
   } catch {
@@ -60,8 +80,72 @@ function getDb(): Firestore {
   return _db;
 }
 
-// Secret for HMAC offline validation tokens
-const HMAC_SECRET = process.env.HMAC_SECRET || process.env.JWT_SECRET || 'whatstransmissao-pro-sec-key-2026-pedro-igor';
+/* ==========================================================================
+   Admin Authentication Middleware (Authorization: Bearer <firebase_id_token>)
+   Verifica token com Firebase Auth e checa se UID está na coleção 'admins'
+   ========================================================================== */
+export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      state: 'UNAUTHORIZED',
+      error: 'Token de autenticação ausente. Header Authorization: Bearer <firebase_id_token> é obrigatório.'
+    });
+  }
+
+  const idToken = authHeader.substring(7).trim();
+  if (!idToken) {
+    return res.status(401).json({
+      success: false,
+      state: 'UNAUTHORIZED',
+      error: 'Token de autenticação vazio.'
+    });
+  }
+
+  try {
+    const db = getDb();
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const uid = decodedToken.uid;
+
+    let isAdmin = Boolean(decodedToken.admin);
+    if (!isAdmin) {
+      const adminDoc = await db.collection('admins').doc(uid).get().catch(() => null);
+      if (adminDoc && adminDoc.exists) {
+        isAdmin = true;
+      }
+    }
+
+    if (!isAdmin && decodedToken.email === 'pedroigooralves@gmail.com') {
+      isAdmin = true;
+      await db.collection('admins').doc(uid).set({
+        uid,
+        email: decodedToken.email,
+        role: 'superadmin',
+        createdAt: new Date().toISOString()
+      }, { merge: true }).catch(() => {});
+    }
+
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        state: 'FORBIDDEN',
+        error: 'Acesso negado: o usuário não possui privilégios de administrador na coleção admins.'
+      });
+    }
+
+    (req as any).adminUser = decodedToken;
+    next();
+  } catch (err: any) {
+    console.error('Admin token verification failed:', err?.message || err);
+    return res.status(401).json({
+      success: false,
+      state: 'UNAUTHORIZED',
+      error: 'Token inválido ou expirado.'
+    });
+  }
+}
+
 
 export const FIXED_PIX_CODE = '00020126720014BR.GOV.BCB.PIX013639fe1e46-001d-499e-8bbd-4bd9a0746e6d0210Vitalicio 5204000053039865406239.905802BR5925PEDRO IGOR ALVES DA SILVA6009SAO PAULO622605224XFv7wymjQUh3OViUZlCx56304A298';
 export const FIXED_QR_CODE_IMAGE = 'https://i.ibb.co/HfyQkFbT/image.png';
@@ -754,7 +838,7 @@ apiRouter.get('/api/order', handleGetOrder);
    2.7 POST /api/order/confirm-manual
    Confirmação manual no painel com gravação 100% direta no Firestore.
    ========================================================================== */
-apiRouter.post('/api/order/confirm-manual', async (req: Request, res: Response) => {
+apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { order_id, id } = req.body || {};
     const targetId = (order_id || id || '').trim();
@@ -839,7 +923,7 @@ apiRouter.post('/api/order/confirm-manual', async (req: Request, res: Response) 
    CRUD Handlers for Web Admin Clients / Sales / Licenses / Trials
    All writing and deleting directly against Firestore collections
    ========================================================================== */
-apiRouter.post('/api/client/save', async (req: Request, res: Response) => {
+apiRouter.post('/api/client/save', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { id, name, email, phone } = req.body || {};
     if (!name || !email) return res.status(400).json({ success: false, error: 'Nome e e-mail são obrigatórios.' });
@@ -861,7 +945,7 @@ apiRouter.post('/api/client/save', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/api/client/delete', async (req: Request, res: Response) => {
+apiRouter.post('/api/client/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { client_id, id } = req.body || {};
     const targetId = client_id || id;
@@ -874,7 +958,7 @@ apiRouter.post('/api/client/delete', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/api/sale/delete', async (req: Request, res: Response) => {
+apiRouter.post('/api/sale/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { sale_id, id } = req.body || {};
     const targetId = sale_id || id;
@@ -888,7 +972,7 @@ apiRouter.post('/api/sale/delete', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/api/license/delete', async (req: Request, res: Response) => {
+apiRouter.post('/api/license/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { license_id, id, key } = req.body || {};
     const targetId = license_id || id || key;
@@ -906,7 +990,7 @@ apiRouter.post('/api/license/delete', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/api/trial/delete', async (req: Request, res: Response) => {
+apiRouter.post('/api/trial/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { trial_id, id, device_id } = req.body || {};
     const targetId = trial_id || id || device_id;
@@ -920,7 +1004,7 @@ apiRouter.post('/api/trial/delete', async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post('/api/license/deactivate', async (req: Request, res: Response) => {
+apiRouter.post('/api/license/deactivate', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const { key, license_key } = req.body || {};
     const licKey = (key || license_key || '').trim();

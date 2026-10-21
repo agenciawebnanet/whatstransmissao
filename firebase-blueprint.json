@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "description": "Customer information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "format": "email", "maxLength": 100 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "phone", "email", "createdAt"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "Sales records for WhatsTransmição PRO",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "clientId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "clientName": { "type": "string", "maxLength": 100 },
+        "product": { "type": "string", "maxLength": 100 },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pendente", "pago", "cancelado", "reembolsado"] },
+        "paymentMethod": { "type": "string", "maxLength": 50 },
+        "pixCode": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string" },
+        "paidAt": { "type": "string" }
+      },
+      "required": ["id", "clientId", "clientName", "product", "amount", "status", "paymentMethod", "createdAt"]
+    },
+    "License": {
+      "title": "License",
+      "description": "License keys for Android app",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "key": { "type": "string", "maxLength": 64 },
+        "clientId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "clientName": { "type": "string", "maxLength": 100 },
+        "saleId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": { "type": "string", "enum": ["inativa", "ativa", "bloqueada", "revogada"] },
+        "deviceId": { "type": "string", "maxLength": 128 },
+        "deviceInfo": { "type": "string", "maxLength": 300 },
+        "activatedAt": { "type": "string" },
+        "lastValidatedAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "key", "clientId", "clientName", "saleId", "status", "createdAt"]
+    },
+    "Trial": {
+      "title": "Trial",
+      "description": "Free trial records for 2 hours",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "deviceId": { "type": "string", "maxLength": 128 },
+        "installationUuid": { "type": "string", "maxLength": 128 },
+        "ipHash": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["TRIAL_ACTIVE", "TRIAL_EXPIRED", "CONVERTED_TO_LICENSE"] },
+        "trialStartedAt": { "type": "string" },
+        "trialExpiresAt": { "type": "string" },
+        "lastCheckedAt": { "type": "string" },
+        "deviceInfo": { "type": "string", "maxLength": 300 }
+      },
+      "required": ["id", "deviceId", "status", "trialStartedAt", "trialExpiresAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Admin audit logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "maxLength": 100 },
+        "adminEmail": { "type": "string", "maxLength": 100 },
+        "details": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "action", "adminEmail", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/clients/{clientId}": {
+      "schema": { "$ref": "#/entities/Client" },
+      "description": "Clients collection"
+    },
+    "/sales/{saleId}": {
+      "schema": { "$ref": "#/entities/Sale" },
+      "description": "Sales collection"
+    },
+    "/licenses/{licenseId}": {
+      "schema": { "$ref": "#/entities/License" },
+      "description": "Licenses collection"
+    },
+    "/trials/{trialId}": {
+      "schema": { "$ref": "#/entities/Trial" },
+      "description": "Free trials collection"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit logs collection"
+    },
+    "/admins/{adminId}": {
+      "schema": {
+        "title": "Admin",
+        "type": "object",
+        "properties": {
+          "email": { "type": "string" },
+          "role": { "type": "string" }
+        }
+      },
+      "description": "Admins collection"
+    }
+  }
+}

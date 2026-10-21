@@ -1,0 +1,6 @@
+{
+  "name": "WhatsTransmição PRO",
+  "description": "Sistema completo para gerenciar vendas, clientes e licenças do WhatsTransmição PRO",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

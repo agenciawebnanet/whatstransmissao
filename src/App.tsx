@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Shield, Key, Users, ShoppingCart, Activity, FileText, Plus, Search, 
   Trash2, Edit, CheckCircle, XCircle, AlertTriangle, RefreshCw, LogOut, 
-  Lock, Unlock, Smartphone, ExternalLink, Copy, Check, Terminal, Clock, DollarSign, QrCode, X, AlertCircle
+  Lock, Unlock, Smartphone, ExternalLink, Copy, Check, Terminal, Clock, DollarSign, QrCode, X, AlertCircle, Menu
 } from 'lucide-react';
 import { 
   collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp, setDoc 
@@ -88,6 +88,7 @@ export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'sales' | 'licenses' | 'trials' | 'api_docs' | 'audit'>('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [clients, setClients] = useState<Client[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -756,30 +757,42 @@ export default function App() {
       )}
 
       {/* Top Navbar */}
-      <header className="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+      <header className="bg-zinc-900/95 border-b border-zinc-800/80 sticky top-0 z-50 px-4 md:px-6 py-4 flex items-center justify-between backdrop-blur-xl">
         <div className="flex items-center space-x-3">
-          <div className="bg-emerald-500/10 border border-emerald-500/30 p-2.5 rounded-xl text-emerald-400">
-            <Shield className="h-6 w-6" />
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 rounded-xl transition"
+            title="Menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="bg-emerald-500/10 border border-emerald-500/40 p-1.5 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-950/40">
+            <img 
+              src="https://i.ibb.co/RprFscfL/cone-3-D-de-Seta-e-Sinal-Wi-Fi-Neon.png" 
+              alt="WhatsTransmição PRO" 
+              className="h-7 w-7 object-contain drop-shadow-[0_0_8px_rgba(16,185,129,0.8)]" 
+            />
           </div>
           <div>
-            <span className="text-lg font-bold tracking-tight text-white block">WhatsTransmição <span className="text-emerald-400">PRO</span></span>
-            <span className="text-xs text-zinc-400 font-mono">Licença Vitalícia (R$ 239,90)</span>
+            <span className="text-base sm:text-lg font-bold tracking-tight text-white block">WhatsTransmição <span className="text-emerald-400">PRO</span></span>
+            <span className="text-[11px] text-zinc-400 font-mono hidden sm:inline">Licença Vitalícia (R$ 239,90)</span>
           </div>
         </div>
 
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3">
           <a
             href="https://wa.me/5566999775501?text=Olá,%20desejo%20adquirir%20a%20licença%20vitalícia%20do%20WhatsTransmição%20PRO%20por%20R$%20239,90"
             target="_blank"
             rel="noreferrer"
-            className="bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-3.5 py-2 rounded-xl text-xs font-medium flex items-center space-x-2 transition"
+            className="bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-3 py-2 rounded-xl text-xs font-medium hidden xs:flex items-center space-x-2 transition"
           >
             <ExternalLink className="h-4 w-4" />
-            <span>Suporte WhatsApp (5566999775501)</span>
+            <span className="hidden sm:inline">Suporte WhatsApp</span>
+            <span className="sm:hidden">Suporte</span>
           </a>
 
-          <div className="flex items-center space-x-3 pl-4 border-l border-zinc-800">
-            <div className="text-right hidden sm:block">
+          <div className="flex items-center space-x-3 pl-3 border-l border-zinc-800">
+            <div className="text-right hidden md:block">
               <div className="text-xs font-medium text-white">{user.email}</div>
               <div className="text-[10px] text-emerald-400 font-mono">Administrador</div>
             </div>
@@ -795,63 +808,86 @@ export default function App() {
       </header>
 
       {/* Main Layout */}
-      <div className="flex-1 flex flex-col md:flex-row">
+      <div className="flex-1 flex flex-col md:flex-row relative">
+        {/* Mobile Sidebar Overlay */}
+        {mobileMenuOpen && (
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40 md:hidden animate-fade-in"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+        )}
+
         {/* Sidebar */}
-        <aside className="w-full md:w-64 bg-zinc-900/50 border-r border-zinc-800 p-4 space-y-1">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <Activity className="h-4 w-4" />
-            <span>Dashboard</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('clients')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'clients' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <Users className="h-4 w-4" />
-            <span>Clientes</span>
-            {clients.length > 0 && (
-              <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono">
-                {clients.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('sales')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'sales' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <ShoppingCart className="h-4 w-4" />
-            <span>Vendas & Pix (R$ 239,90)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('licenses')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'licenses' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <Key className="h-4 w-4" />
-            <span>Licenciamento</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('trials')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'trials' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <Clock className="h-4 w-4" />
-            <span>Testes Gratuitos (2h)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('api_docs')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'api_docs' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <Terminal className="h-4 w-4" />
-            <span>API Android (Kotlin)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'audit' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
-          >
-            <FileText className="h-4 w-4" />
-            <span>Logs de Auditoria</span>
-          </button>
+        <aside className={`
+          fixed md:static inset-y-0 left-0 z-50 w-72 md:w-64 bg-zinc-900/95 md:bg-zinc-900/50 border-r border-zinc-800 p-4 space-y-1 transform transition-transform duration-300 ease-in-out flex flex-col justify-between
+          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between pb-3 mb-2 md:hidden border-b border-zinc-800">
+              <span className="text-sm font-bold text-white">Menu de Gerenciamento</span>
+              <button 
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1.5 text-zinc-400 hover:text-white rounded-lg"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => { setActiveTab('dashboard'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'dashboard' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <Activity className="h-4 w-4" />
+              <span>Dashboard</span>
+            </button>
+            <button
+              onClick={() => { setActiveTab('clients'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'clients' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <Users className="h-4 w-4" />
+              <span>Clientes</span>
+              {clients.length > 0 && (
+                <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono">
+                  {clients.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => { setActiveTab('sales'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'sales' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <ShoppingCart className="h-4 w-4" />
+              <span>Vendas & Pix (R$ 239,90)</span>
+            </button>
+            <button
+              onClick={() => { setActiveTab('licenses'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'licenses' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <Key className="h-4 w-4" />
+              <span>Licenciamento</span>
+            </button>
+            <button
+              onClick={() => { setActiveTab('trials'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'trials' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <Clock className="h-4 w-4" />
+              <span>Testes Gratuitos (2h)</span>
+            </button>
+            <button
+              onClick={() => { setActiveTab('api_docs'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'api_docs' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <Terminal className="h-4 w-4" />
+              <span>API Android (Kotlin)</span>
+            </button>
+            <button
+              onClick={() => { setActiveTab('audit'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'audit' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <FileText className="h-4 w-4" />
+              <span>Logs de Auditoria</span>
+            </button>
+          </div>
 
           <div className="pt-6 mt-6 border-t border-zinc-800">
             <button
@@ -868,7 +904,7 @@ export default function App() {
         </aside>
 
         {/* Content Area */}
-        <main className="flex-1 p-6 md:p-8 overflow-y-auto">
+        <main className="flex-1 p-4 sm:p-6 md:p-8 overflow-y-auto">
           {loadingData && !clients.length && (
             <div className="flex items-center justify-center py-20 text-emerald-400 space-x-2 font-mono">
               <RefreshCw className="animate-spin h-5 w-5" />
@@ -879,9 +915,31 @@ export default function App() {
           {/* TAB: DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-bold tracking-tight text-white">Visão Geral</h2>
-                <p className="text-sm text-zinc-400">Métricas em tempo real de licenças, vendas Pix e testes gratuitos.</p>
+              {/* Hero Banner with Gemini Generated Image */}
+              <div className="relative rounded-2xl overflow-hidden border border-emerald-500/30 p-6 sm:p-8 bg-zinc-900 shadow-2xl">
+                <div className="absolute inset-0 z-0 opacity-25 bg-cover bg-center" style={{ backgroundImage: `url('https://i.ibb.co/Ng0g4J33/Gemini-Generated-Image.jpg')` }} />
+                <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-900/90 to-transparent z-10" />
+                <div className="relative z-20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono mb-3 shadow-inner">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      <span>Sistema Ativo & Licenciamento 100% Online</span>
+                    </div>
+                    <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Painel <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">WhatsTransmição PRO</span></h2>
+                    <p className="text-zinc-400 text-sm mt-1 max-w-xl">Gerenciamento completo de clientes, vendas Pix estático (R$ 239,90), ativações de licenças e testes gratuitos.</p>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <a
+                      href="https://wa.me/5566999775501?text=Olá,%20desejo%20adquirir%20a%20licença%20vitalícia%20do%20WhatsTransmição%20PRO"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-medium text-sm transition shadow-lg shadow-emerald-950/50 flex items-center space-x-2"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      <span>Suporte WhatsApp</span>
+                    </a>
+                  </div>
+                </div>
               </div>
 
               {/* Stat Cards */}

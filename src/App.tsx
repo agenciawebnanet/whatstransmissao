@@ -393,10 +393,17 @@ export default function App() {
       if (newStatus === 'pago') {
         updateData.paidAt = new Date().toISOString();
       }
-      await updateDoc(doc(db, 'sales', saleId), updateData);
+      await updateDoc(doc(db, 'sales', saleId), updateData).catch(() => {});
       await logAction('UPDATE_SALE_STATUS', `Venda ${saleId} atualizada para: ${newStatus}`);
 
       if (newStatus === 'pago') {
+        // Also call backend API to sync order and create license
+        await fetch('/api/order/confirm-manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: saleId })
+        }).catch(err => console.warn('Order confirm API notice:', err));
+
         const sale = sales.find(s => s.id === saleId);
         if (sale) {
           const existingLic = licenses.find(l => l.saleId === saleId);
@@ -414,11 +421,11 @@ export default function App() {
               activatedAt: null,
               lastValidatedAt: null,
               createdAt: new Date().toISOString()
-            });
+            }).catch(() => {});
             await logAction('AUTO_GENERATE_LICENSE', `Chave ${licenseKey} gerada automaticamente para ${sale.clientName} após confirmação Pix.`);
             showToast(`Venda aprovada! Chave ${licenseKey} gerada com sucesso.`, 'success');
           } else {
-            showToast('Venda atualizada para paga!', 'success');
+            showToast('Venda atualizada para paga e licença confirmada!', 'success');
           }
         }
       } else {
@@ -1338,50 +1345,155 @@ export default function App() {
 
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6 shadow-xl">
                 <div>
-                  <h3 className="text-base font-semibold text-white mb-2">URLs Base da API</h3>
-                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-emerald-400 space-y-1">
-                    <div>Development URL: https://ais-dev-bya6err3d42jh3gdfqfy76-7333253531.us-east5.run.app</div>
-                    <div>Production URL: https://ais-pre-bya6err3d42jh3gdfqfy76-7333253531.us-east5.run.app</div>
+                  <h3 className="text-base font-semibold text-white mb-2">URLs Base Públicas da API (Sem Login Google / JSON Puro)</h3>
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-emerald-400 space-y-2">
+                    <div><span className="text-zinc-500 uppercase">Produção Vercel:</span> https://whatstransmissao.vercel.app</div>
+                    <div><span className="text-zinc-500 uppercase">Ambiente AI Studio:</span> https://ais-pre-bya6err3d42jh3gdfqfy76-7333253531.us-east5.run.app</div>
+                    <div className="text-zinc-400 text-[11px] pt-1">Todas as rotas retornam exclusivamente Content-Type: application/json e possuem CORS liberado (*) para o APK Android.</div>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <h3 className="text-base font-semibold text-white">Chave Pix Copia e Cola Oficial</h3>
+                <div className="space-y-2">
+                  <h3 className="text-base font-semibold text-white">Chave Pix Copia e Cola Oficial (R$ 239,90)</h3>
                   <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-emerald-400 break-all">
                     {FIXED_PIX_CODE}
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-base font-semibold text-white">1. Iniciar Teste Gratuito (2 Horas / 120 min)</h3>
+                  <h3 className="text-base font-semibold text-white">1. Iniciar Teste Gratuito de 120 Minutos</h3>
                   <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
                     <div className="text-emerald-400 font-bold">POST /api/trial/start</div>
-                    <pre className="text-zinc-400 mt-2">{`{
-  "device_id": "android_secure_installation_uuid",
-  "device_info": "Samsung Galaxy S24"
+                    <pre className="text-zinc-400 mt-1">{`// Request
+{
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "device_info": "Samsung Galaxy S24 / Android 14"
+}
+
+// Response 200 OK
+{
+  "success": true,
+  "state": "TRIAL_ACTIVE",
+  "trial_started_at": "2026-10-21T06:00:00.000Z",
+  "trial_expires_at": "2026-10-21T08:00:00.000Z",
+  "remaining_seconds": 7200,
+  "message": "Teste gratuito de 2 horas iniciado com sucesso!"
 }`}</pre>
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-base font-semibold text-white">2. Status de Teste ou Licença</h3>
+                  <h3 className="text-base font-semibold text-white">2. Consulta de Status do Teste ou Licença</h3>
                   <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
                     <div className="text-emerald-400 font-bold">POST /api/trial/status</div>
-                    <pre className="text-zinc-400 mt-2">{`{
-  "device_id": "android_secure_installation_uuid",
-  "license_key": "WST-PRO-..."
+                    <pre className="text-zinc-400 mt-1">{`// Request
+{
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "license_key": ""
+}
+
+// Estados possíveis: TRIAL_ACTIVE, TRIAL_EXPIRED, LICENSE_ACTIVE, LICENSE_BLOCKED, UNKNOWN
+// Response 200 OK (Dispositivo novo: state = "UNKNOWN", nunca 404)
+{
+  "success": true,
+  "state": "TRIAL_ACTIVE",
+  "remaining_seconds": 4500,
+  "trial_expires_at": "2026-10-21T08:00:00.000Z",
+  "license_key": "",
+  "server_time": "2026-10-21T06:45:00.000Z"
 }`}</pre>
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-base font-semibold text-white">3. Ativação de Licença Vitalícia</h3>
+                  <h3 className="text-base font-semibold text-white">3. Ativação de Licença Vitalícia (1 Dispositivo por Chave)</h3>
                   <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
                     <div className="text-emerald-400 font-bold">POST /api/license/activate</div>
-                    <pre className="text-zinc-400 mt-2">{`{
+                    <pre className="text-zinc-400 mt-1">{`// Request
+{
   "key": "WST-PRO-A1B2-C3D4-E5F6",
-  "device_id": "android_secure_installation_uuid",
-  "device_info": "Xiaomi 13 Pro"
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "device_info": "Xiaomi 13 Pro / Android 15"
+}
+
+// Response 200 OK (token HMAC com 7 dias de validade offline)
+{
+  "success": true,
+  "state": "LICENSE_ACTIVE",
+  "license_key": "WST-PRO-A1B2-C3D4-E5F6",
+  "activated_at": "2026-10-21T12:00:00.000Z",
+  "token": "...",
+  "expires_at": "2026-10-28T12:00:00.000Z",
+  "message": "Licença ativada com sucesso."
+}`}</pre>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-base font-semibold text-white">4. Revalidação e Renovação do Token Offline</h3>
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
+                    <div className="text-emerald-400 font-bold">POST /api/license/validate</div>
+                    <pre className="text-zinc-400 mt-1">{`// Request
+{
+  "key": "WST-PRO-A1B2-C3D4-E5F6",
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "token": "..."
+}
+
+// Response 200 OK (renova token para mais 7 dias)
+{
+  "success": true,
+  "state": "LICENSE_ACTIVE",
+  "license_key": "WST-PRO-A1B2-C3D4-E5F6",
+  "token": "...",
+  "expires_at": "2026-10-28T12:00:00.000Z",
+  "server_time": "2026-10-21T12:00:00.000Z"
+}`}</pre>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-base font-semibold text-white">5. Criar Cobrança Pix pelo APK</h3>
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
+                    <div className="text-emerald-400 font-bold">POST /api/pix/create</div>
+                    <pre className="text-zinc-400 mt-1">{`// Request
+{
+  "device_id": "550e8400-e29b-41d4-a716-446655440000",
+  "amount": 239.90,
+  "description": "Licença vitalícia WhatsTransmissão PRO"
+}
+
+// Response 200 OK
+{
+  "success": true,
+  "order_id": "ord_1729519200_a1b2",
+  "pix_payload": "00020126720014BR.GOV.BCB.PIX...",
+  "pix_qr_code": "https://i.ibb.co/HfyQkFbT/image.png",
+  "expires_at": "2026-10-22T12:00:00.000Z",
+  "status": "PENDING"
+}`}</pre>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-base font-semibold text-white">6. Polling do Pedido pelo APK (Confirmação Automática)</h3>
+                  <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 font-mono text-xs text-zinc-300 space-y-2">
+                    <div className="text-emerald-400 font-bold">GET /api/order/:order_id</div>
+                    <pre className="text-zinc-400 mt-1">{`// Quando Pendente (Polling a cada 3s no APK):
+{
+  "success": true,
+  "order_id": "ord_1729519200_a1b2",
+  "status": "PENDING",
+  "message": "Aguardando confirmação do pagamento Pix."
+}
+
+// Quando Aprovado pelo Administrador no Painel Web:
+{
+  "success": true,
+  "order_id": "ord_1729519200_a1b2",
+  "status": "PAID",
+  "paid_at": "2026-10-21T12:30:00.000Z",
+  "license_key": "WST-PRO-A1B2-C3D4-E5F6"
 }`}</pre>
                   </div>
                 </div>

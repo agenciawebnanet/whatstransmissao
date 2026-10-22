@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Shield, Key, Users, ShoppingCart, Activity, FileText, Plus, Search, 
   Trash2, Edit, CheckCircle, XCircle, AlertTriangle, RefreshCw, LogOut, 
-  Lock, Unlock, Smartphone, ExternalLink, Copy, Check, Terminal, Clock, DollarSign, QrCode, X, AlertCircle, Menu
+  Lock, Unlock, Smartphone, ExternalLink, Copy, Check, Terminal, Clock, DollarSign, QrCode, X, AlertCircle, Menu, BrainCircuit
 } from 'lucide-react';
 import { 
   collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp, setDoc 
@@ -91,6 +91,10 @@ interface AuditLog {
   createdAt: string;
 }
 
+interface AIConfig {
+  context: string;
+}
+
 interface ConfirmDialogState {
   isOpen: boolean;
   title: string;
@@ -112,7 +116,7 @@ const FIXED_QR_CODE_IMAGE = 'https://i.ibb.co/HfyQkFbT/image.png';
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'sales' | 'licenses' | 'trials' | 'api_docs' | 'audit'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'clients' | 'sales' | 'licenses' | 'trials' | 'api_docs' | 'audit' | 'ai_brain'>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -135,6 +139,7 @@ export default function App() {
 
   const [pixModalData, setPixModalData] = useState<{ pixCode: string; orderId: string; clientName: string; qrImage: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [aiBrainConfig, setAiBrainConfig] = useState<AIConfig>({ context: '' });
 
   // In-App Toast & Confirmation states (replaces window.alert and window.confirm)
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -167,6 +172,19 @@ export default function App() {
       fetchAllData();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (activeTab === 'ai_brain') {
+      (async () => {
+        const headers = await getAdminAuthHeaders();
+        const res = await fetch('/api/settings/get', { headers });
+        const data = await res.json();
+        if (data.success) {
+          setAiBrainConfig(data.data);
+        }
+      })();
+    }
+  }, [activeTab]);
 
   const fetchAllData = async () => {
     setLoadingData(true);
@@ -928,6 +946,13 @@ export default function App() {
               <span>API Android (Kotlin)</span>
             </button>
             <button
+              onClick={() => { setActiveTab('ai_brain'); setMobileMenuOpen(false); }}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'ai_brain' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
+            >
+              <BrainCircuit className="h-4 w-4" />
+              <span>Cérebro da IA</span>
+            </button>
+            <button
               onClick={() => { setActiveTab('audit'); setMobileMenuOpen(false); }}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition cursor-pointer ${activeTab === 'audit' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-950/20' : 'text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200'}`}
             >
@@ -1657,9 +1682,7 @@ export default function App() {
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-
+          
           {/* TAB: AUDIT LOGS */}
           {activeTab === 'audit' && (
             <div className="space-y-6">
@@ -1667,6 +1690,64 @@ export default function App() {
                 <h2 className="text-2xl font-bold tracking-tight text-white">Logs de Auditoria</h2>
                 <p className="text-sm text-zinc-400">Histórico de ações administrativas e eventos do sistema.</p>
               </div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
+                 <table className="w-full text-left border-collapse">
+                   <thead>
+                     <tr className="border-b border-zinc-800 text-xs font-mono text-zinc-400 uppercase bg-zinc-900/80">
+                       <th className="p-4">Ação</th>
+                       <th className="p-4">Administrador</th>
+                       <th className="p-4">Detalhes</th>
+                       <th className="p-4">Data/Hora</th>
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-zinc-800 text-sm">
+                     {auditLogs.map((log) => (
+                       <tr key={log.id} className="hover:bg-zinc-800/40 transition">
+                         <td className="p-4 font-mono font-bold text-emerald-400">{log.action}</td>
+                         <td className="p-4 text-zinc-300">{log.adminEmail}</td>
+                         <td className="p-4 text-zinc-300">{log.details}</td>
+                         <td className="p-4 text-zinc-500 font-mono text-xs">{new Date(log.createdAt).toLocaleString()}</td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: CÉREBRO DA IA */}
+          {activeTab === 'ai_brain' && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl">
+              <h2 className="text-xl font-bold text-white mb-6">Cérebro da IA</h2>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const headers = await getAdminAuthHeaders();
+                await fetch('/api/settings/save', {
+                  method: 'POST',
+                  headers: { ...headers, 'Content-Type': 'application/json' },
+                  body: JSON.stringify(aiBrainConfig)
+                });
+                showToast('Configurações de IA salvas com sucesso!', 'success');
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-mono text-zinc-400 uppercase mb-2">Contexto da Empresa (Regras da IA)</label>
+                  <textarea
+                    rows={12}
+                    value={aiBrainConfig.context}
+                    onChange={(e) => setAiBrainConfig({ context: e.target.value })}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500 transition font-mono"
+                    placeholder="Ex: Nome da loja: WhatsResponder. Vendemos automação para WhatsApp. Nosso endereço é Av. Paulista, 1000. Formas de pagamento: Pix e Cartão. Tom de voz: Amigável e prestativo."
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 px-6 rounded-xl transition shadow-lg shadow-emerald-950/50 cursor-pointer"
+                >
+                  Salvar Configurações
+                </button>
+              </form>
+            </div>
+          )}
 
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
                 <table className="w-full text-left border-collapse">

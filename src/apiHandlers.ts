@@ -1160,11 +1160,24 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
     const message = body.message || body.prompt || body.text || '';
-    const systemPrompt = body.system_prompt || body.systemPrompt || body.system || 'Você é um assistente virtual inteligente e prestativo para WhatsApp (Whats Responder). Responda de forma clara, educada, concisa e amigável em português.';
+    
+    // Fetch AI context from Firestore
+    const db = getDb();
+    const settingsDoc = await db.collection('settings').doc('ai_context').get();
+    const aiContext = settingsDoc.exists ? (settingsDoc.data() as any).context : '';
+    
+    const baseSystemPrompt = 'Você é um assistente virtual inteligente e prestativo para WhatsApp (Whats Responder). Responda de forma clara, educada, concisa e amigável em português. Se você não souber responder com base nas informações abaixo, responda APENAS "HUMAN_NEEDED".';
+    const systemPrompt = `${baseSystemPrompt}\n\nINFORMAÇÕES DA EMPRESA:\n${aiContext}`;
 
     let messages: Array<{ role: string; content: string }> = [];
     if (Array.isArray(body.messages) && body.messages.length > 0) {
       messages = body.messages;
+      // Prepend system prompt to the first message if it's a system role, otherwise add it
+      if (messages[0]?.role === 'system') {
+        messages[0].content = `${systemPrompt}\n\n${messages[0].content}`;
+      } else {
+        messages.unshift({ role: 'system', content: systemPrompt });
+      }
     } else if (message) {
       messages = [
         { role: 'system', content: systemPrompt },
@@ -1277,5 +1290,30 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('AI chat endpoint error:', error);
     return res.status(500).json({ success: false, error: 'Erro no endpoint de IA: ' + error.message });
+  }
+});
+
+/* ==========================================================================
+   2.9 Settings Endpoints (AI Context)
+   ========================================================================== */
+apiRouter.get('/api/settings/get', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const doc = await db.collection('settings').doc('ai_context').get();
+    return res.json({ success: true, data: doc.exists ? doc.data() : { context: '' } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+apiRouter.post('/api/settings/save', requireAdminAuth, async (req: Request, res: Response) => {
+  try {
+    const body = parseBody(req);
+    const { context } = body;
+    const db = getDb();
+    await db.collection('settings').doc('ai_context').set({ context, updatedAt: new Date().toISOString() });
+    return res.json({ success: true, message: 'Configurações de IA salvas com sucesso.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 });

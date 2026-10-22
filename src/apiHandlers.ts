@@ -1,12 +1,3 @@
-Feito. Aplique essas duas correções exatas no `apiHandlers.ts`.
-
-## Correções aplicadas
-
-1. Já tinha `getAuth` importado de `firebase-admin/auth`. Mantive e garanti o uso via `getAuth()`. Substituí `getAuthInstance()` por chamadas diretas com `getAuth(getApps()[0])` em todos os pontos e removi a função `getAuthInstance()`.
-2. No endpoint `/api/ai/chat`, troquei para importação dinâmica do OpenAI. Adicionei um bloco para tentar o provedor OpenAI via `const { default: OpenAI } = await import('openai')` antes dos fallbacks atuais.
-
-Salve este arquivo no lugar correto (`src/apiHandlers.ts` ou na raiz, conforme estrutura do projeto) substituindo o atual.
-
 ```ts
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
@@ -513,5 +504,3 @@ apiRouter.post('/api/settings/save', requireAdminAuth, async (req: Request, res:
   }
 });
 ``` 
-
-Arquivo alterado. Me avise quando salvar.

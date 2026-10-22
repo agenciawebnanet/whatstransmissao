@@ -1682,7 +1682,9 @@ export default function App() {
                   </div>
                 </div>
               </div>
-          
+            </div>
+          )}
+
           {/* TAB: AUDIT LOGS */}
           {activeTab === 'audit' && (
             <div className="space-y-6">
@@ -1746,44 +1748,6 @@ export default function App() {
                   Salvar Configurações
                 </button>
               </form>
-            </div>
-          )}
-
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-xl">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-zinc-800 text-xs font-mono text-zinc-400 uppercase bg-zinc-900/80">
-                      <th className="p-4">Ação</th>
-                      <th className="p-4">Administrador</th>
-                      <th className="p-4">Detalhes</th>
-                      <th className="p-4">Data/Hora</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800 text-sm">
-                    {auditLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-zinc-800/40 transition">
-                        <td className="p-4 font-mono font-bold text-emerald-400">
-                          {log.action}
-                        </td>
-                        <td className="p-4 text-zinc-300">
-                          {log.adminEmail}
-                        </td>
-                        <td className="p-4 text-zinc-400">
-                          {log.details}
-                        </td>
-                        <td className="p-4 text-zinc-500 font-mono text-xs">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                    {auditLogs.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="p-8 text-center text-zinc-500">Nenhum log registrado ainda.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </div>
           )}
         </main>

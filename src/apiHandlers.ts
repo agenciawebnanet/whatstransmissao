@@ -3,10 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import * as adminNamespace from 'firebase-admin';
 import crypto from 'crypto';
-
-const admin: any = (adminNamespace as any).default || adminNamespace;
 
 /* ==========================================================================
    Environment & Security Assertions (Fail-Fast on Missing Secrets)
@@ -54,16 +51,20 @@ if (!getApps().length) {
   firebaseAdminApp = getApps()[0];
 }
 
-const db = firebaseAdminApp 
-  ? getFirestore(firebaseAdminApp, targetFirestoreDbId) 
-  : getFirestore(targetFirestoreDbId);
-
 function getDb(): Firestore {
   const currentApp = getApps()[0] || firebaseAdminApp;
-  if (currentApp) {
-    return getFirestore(currentApp, targetFirestoreDbId);
+  if (!currentApp) {
+    throw new Error('Firebase Admin App not initialized');
   }
-  return db;
+  return getFirestore(currentApp, targetFirestoreDbId);
+}
+
+function getAuthInstance() {
+  const currentApp = getApps()[0] || firebaseAdminApp;
+  if (!currentApp) {
+    throw new Error('Firebase Admin App not initialized');
+  }
+  return getAuth(currentApp);
 }
 
 /* ==========================================================================
@@ -91,7 +92,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
 
   try {
     const db = getDb();
-    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const decodedToken = await getAuthInstance().verifyIdToken(idToken);
     const uid = decodedToken.uid;
 
     let isAdmin = Boolean(decodedToken.admin);
@@ -1249,19 +1250,31 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
       }
     }
 
-    // 3. Provedor Google Gemini se configurado
+    // 3. Provedor Google Gemini se configurado (Refatorado para @google/genai moderno)
     if (process.env.GEMINI_API_KEY && !reply) {
       try {
         const { GoogleGenAI } = await import('@google/genai');
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const userPrompt = messages.filter(m => m.role === 'user').map(m => m.content).join('\n') || message;
+        const ai = new GoogleGenAI({ 
+          apiKey: process.env.GEMINI_API_KEY,
+          httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
+        });
+
+        // Convert messages to @google/genai format
+        // Role mapping: user -> user, model -> model, assistant -> model
+        const filteredMessages = messages.filter(m => m.role !== 'system');
+        const contents = filteredMessages.map(m => ({
+          role: (m.role === 'assistant' || m.role === 'model') ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        }));
+
         const geminiRes = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: userPrompt,
+          model: 'gemini-3.8-flash',
+          contents,
           config: {
             systemInstruction: systemPrompt
           }
         });
+
         reply = geminiRes.text || '';
       } catch (err: any) {
         console.error('Gemini API error:', err?.message || err);

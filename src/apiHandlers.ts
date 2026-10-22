@@ -2,8 +2,10 @@ import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
+import * as adminNamespace from 'firebase-admin';
 import crypto from 'crypto';
+
+const admin: any = (adminNamespace as any).default || adminNamespace;
 
 /* ==========================================================================
    Environment & Security Assertions (Fail-Fast on Missing Secrets)
@@ -80,7 +82,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
 
   try {
     const db = getDb();
-    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
     const uid = decodedToken.uid;
 
     let isAdmin = Boolean(decodedToken.admin);

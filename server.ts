@@ -11,7 +11,14 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ strict: false }));
+  app.use((err: any, req: any, res: any, next: any) => {
+    if (err instanceof SyntaxError && 'body' in err) {
+      req.body = {};
+      return next();
+    }
+    next(err);
+  });
 
   // Mount API router
   app.use(apiRouter);

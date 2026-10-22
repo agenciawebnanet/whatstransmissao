@@ -274,27 +274,38 @@ apiRouter.use((req: any, res: any, next: any) => {
   next();
 });
 
-// JSON body parser fallback
-apiRouter.use((req: any, res: any, next: any) => {
-  if (req.body !== undefined && Object.keys(req.body).length > 0) return next();
-  if (req.method === 'GET' || req.method === 'HEAD') {
-    req.body = req.body || {};
-    return next();
-  }
-  let bodyData = '';
-  req.on('data', (chunk: any) => { bodyData += chunk; });
-  req.on('end', () => {
-    if (bodyData) {
-      try {
-        req.body = JSON.parse(bodyData);
-      } catch {
-        req.body = {};
-      }
-    } else {
-      req.body = req.body || {};
+/**
+ * Parse do corpo da requisição à prova de falhas:
+ * Trata casos de corpo vazio, retries do app Android ou parsing prévio na Vercel/Express.
+ */
+export function parseBody(req: Request): Record<string, any> {
+  let body = (req as any).body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body.trim() || '{}');
+    } catch (e) {
+      body = {}; // Se falhar, assume objeto vazio para não quebrar o servidor
     }
-    next();
-  });
+  } else if (!body || typeof body !== 'object') {
+    body = {};
+  }
+  return body;
+}
+
+// Middleware de normalização do corpo da requisição
+apiRouter.use((req: any, res: any, next: any) => {
+  let body = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body.trim() || '{}');
+    } catch (e) {
+      body = {};
+    }
+  } else if (!body || typeof body !== 'object') {
+    body = {};
+  }
+  req.body = body;
+  next();
 });
 
 /* ==========================================================================
@@ -304,9 +315,11 @@ apiRouter.use((req: any, res: any, next: any) => {
    ========================================================================== */
 apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
   try {
-    const { device_id, installation_uuid, device_info, app_id } = req.body || {};
-    const devId = (device_id || installation_uuid || '').trim();
-    const appId = (app_id || 'whatstransmissao').trim();
+    const body = parseBody(req);
+    const devId = (body.device_id || body.deviceId || body.installation_uuid || body.installationUuid || '').trim();
+    const appId = (body.app_id || body.appId || 'whatstransmissao').trim();
+    const deviceInfo = body.device_info || body.deviceInfo || 'Dispositivo Android';
+
     if (!devId) {
       return res.status(400).json({ success: false, error: 'device_id é obrigatório.' });
     }
@@ -391,8 +404,8 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       trial_expires_at: expIso,
       lastCheckedAt: nowIso,
       last_checked_at: nowIso,
-      deviceInfo: device_info || 'Dispositivo Android',
-      device_info: device_info || 'Dispositivo Android',
+      deviceInfo,
+      device_info: deviceInfo,
       createdAt: nowIso,
       created_at: nowIso,
       appId: appId,
@@ -426,9 +439,22 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
   try {
     const serverTime = new Date().toISOString();
     const now = new Date();
-    const { device_id, installation_uuid, license_key, key } = req.body || {};
-    const devId = (device_id || installation_uuid || '').trim();
-    const licKey = (license_key || key || '').trim();
+    const body = parseBody(req);
+    const devId = (body.device_id || body.deviceId || body.installation_uuid || body.installationUuid || '').trim();
+    const licKey = (body.license_key || body.licenseKey || body.key || '').trim();
+
+    if (!devId && !licKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'device_id ou license_key é obrigatório.',
+        state: 'UNKNOWN',
+        remaining_seconds: 0,
+        trial_expires_at: null,
+        license_key: '',
+        server_time: serverTime
+      });
+    }
+
     const db = getDb();
 
     // 1. Check by license_key if provided
@@ -540,16 +566,27 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
    ========================================================================== */
 apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
   try {
-    const { key, license_key, device_id, device_info, app_id } = req.body || {};
-    const licKey = (key || license_key || '').trim();
-    const devId = (device_id || '').trim();
-    const appId = (app_id || 'whatstransmissao').trim();
+    const body = parseBody(req);
+    const licKey = (body.key || body.license_key || body.licenseKey || '').trim();
+    const devId = (body.device_id || body.deviceId || '').trim();
+    const appId = (body.app_id || body.appId || 'whatstransmissao').trim();
+    const deviceInfo = body.device_info || body.deviceInfo || 'Dispositivo Android';
 
-    if (!licKey || !devId) {
+    if (!devId) {
       return res.status(400).json({
         success: false,
+        error: 'device_id é obrigatório.',
+        state: 'INVALID_DEVICE',
+        message: 'O device_id é obrigatório.'
+      });
+    }
+
+    if (!licKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Chave de licença é obrigatória.',
         state: 'INVALID_KEY',
-        message: 'A chave de licença e o device_id são obrigatórios.'
+        message: 'A chave de licença é obrigatória.'
       });
     }
 
@@ -599,7 +636,7 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
     const targetDocId = license.id || `lic_${licKey}`;
     await db.collection('licenses').doc(targetDocId).set({
       deviceId: devId,
-      deviceInfo: device_info || license.deviceInfo || 'Dispositivo Android',
+      deviceInfo: deviceInfo || license.deviceInfo || 'Dispositivo Android',
       status: 'ativa',
       activatedAt: license.activatedAt || now,
       lastValidatedAt: now,
@@ -640,12 +677,13 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
 apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
   try {
     const serverTime = new Date().toISOString();
-    const { key, license_key, device_id, token } = req.body || {};
-    const licKey = (key || license_key || '').trim();
-    const devId = (device_id || '').trim();
+    const body = parseBody(req);
+    const licKey = (body.key || body.license_key || body.licenseKey || '').trim();
+    const devId = (body.device_id || body.deviceId || '').trim();
+    const token = body.token || '';
 
     if (!devId) {
-      return res.status(400).json({ success: false, state: 'INVALID_REQUEST', message: 'device_id é obrigatório.' });
+      return res.status(400).json({ success: false, state: 'INVALID_REQUEST', message: 'device_id é obrigatório.', error: 'device_id é obrigatório.' });
     }
 
     // Verify cryptographic token if provided
@@ -728,11 +766,12 @@ apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
    ========================================================================== */
 apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
   try {
-    const { device_id, deviceId, amount, description, app_id, appId, clientName, client_name } = req.body || {};
-    const devId = (device_id || deviceId || '').trim();
-    const application = (app_id || appId || 'whatstransmissao').trim();
-    const numericAmount = typeof amount === 'number' ? amount : (parseFloat(amount) || 239.90);
-    const resolvedClientName = clientName || client_name || (devId ? `APK Android (${devId.substring(0, 8)})` : 'Cliente Pix');
+    const body = parseBody(req);
+    const devId = (body.device_id || body.deviceId || '').trim();
+    const application = (body.app_id || body.appId || 'whatstransmissao').trim();
+    const numericAmount = typeof body.amount === 'number' ? body.amount : (parseFloat(body.amount) || 239.90);
+    const resolvedClientName = body.clientName || body.client_name || (devId ? `APK Android (${devId.substring(0, 8)})` : 'Cliente Pix');
+    const description = body.description || '';
 
     if (!devId) {
       return res.status(400).json({ success: false, error: 'device_id é obrigatório para gerar o pedido Pix.' });
@@ -874,8 +913,8 @@ apiRouter.get('/api/order', handleGetOrder);
    ========================================================================== */
 apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { order_id, id } = req.body || {};
-    const targetId = (order_id || id || '').trim();
+    const body = parseBody(req);
+    const targetId = (body.order_id || body.orderId || body.id || '').trim();
     if (!targetId) {
       return res.status(400).json({ success: false, error: 'ID do pedido é obrigatório.' });
     }
@@ -984,7 +1023,8 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
    ========================================================================== */
 apiRouter.post('/api/client/save', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { id, name, email, phone } = req.body || {};
+    const body = parseBody(req);
+    const { id, name, email, phone } = body;
     if (!name || !email) return res.status(400).json({ success: false, error: 'Nome e e-mail são obrigatórios.' });
     const now = new Date().toISOString();
     const targetId = id || `client_${Date.now()}`;
@@ -1006,7 +1046,8 @@ apiRouter.post('/api/client/save', requireAdminAuth, async (req: Request, res: R
 
 apiRouter.post('/api/client/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { client_id, id } = req.body || {};
+    const body = parseBody(req);
+    const { client_id, id } = body;
     const targetId = client_id || id;
     if (!targetId) return res.status(400).json({ success: false, error: 'ID do cliente obrigatório' });
     const db = getDb();
@@ -1019,7 +1060,8 @@ apiRouter.post('/api/client/delete', requireAdminAuth, async (req: Request, res:
 
 apiRouter.post('/api/sale/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { sale_id, id } = req.body || {};
+    const body = parseBody(req);
+    const { sale_id, id } = body;
     const targetId = sale_id || id;
     if (!targetId) return res.status(400).json({ success: false, error: 'ID da venda obrigatório' });
     const db = getDb();
@@ -1033,7 +1075,8 @@ apiRouter.post('/api/sale/delete', requireAdminAuth, async (req: Request, res: R
 
 apiRouter.post('/api/license/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { license_id, id, key } = req.body || {};
+    const body = parseBody(req);
+    const { license_id, id, key } = body;
     const targetId = license_id || id || key;
     if (!targetId) return res.status(400).json({ success: false, error: 'ID da licença obrigatório' });
     const db = getDb();
@@ -1051,7 +1094,8 @@ apiRouter.post('/api/license/delete', requireAdminAuth, async (req: Request, res
 
 apiRouter.post('/api/trial/delete', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { trial_id, id, device_id } = req.body || {};
+    const body = parseBody(req);
+    const { trial_id, id, device_id } = body;
     const targetId = trial_id || id || device_id;
     if (!targetId) return res.status(400).json({ success: false, error: 'ID do teste obrigatório' });
     const db = getDb();
@@ -1065,7 +1109,8 @@ apiRouter.post('/api/trial/delete', requireAdminAuth, async (req: Request, res: 
 
 apiRouter.post('/api/license/deactivate', requireAdminAuth, async (req: Request, res: Response) => {
   try {
-    const { key, license_key } = req.body || {};
+    const body = parseBody(req);
+    const { key, license_key } = body;
     const licKey = (key || license_key || '').trim();
     if (!licKey) return res.status(400).json({ success: false, error: 'Chave obrigatória.' });
 
@@ -1088,7 +1133,8 @@ apiRouter.post('/api/license/deactivate', requireAdminAuth, async (req: Request,
 
 apiRouter.post('/api/payment/create-pix', async (req: Request, res: Response) => {
   try {
-    const { sale_id } = req.body || {};
+    const body = parseBody(req);
+    const { sale_id } = body;
     const orderId = sale_id || `PIX-${Date.now()}`;
     return res.json({
       success: true,
@@ -1111,7 +1157,7 @@ apiRouter.post('/api/payment/create-pix', async (req: Request, res: Response) =>
    ========================================================================== */
 apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
   try {
-    const body = req.body || {};
+    const body = parseBody(req);
     const message = body.message || body.prompt || body.text || '';
     const systemPrompt = body.system_prompt || body.systemPrompt || body.system || 'Você é um assistente virtual inteligente e prestativo para WhatsApp (Whats Responder). Responda de forma clara, educada, concisa e amigável em português.';
 

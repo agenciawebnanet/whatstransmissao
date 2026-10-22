@@ -335,7 +335,8 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       await db.collection('trials').doc(existingTrial.id || `trial_${devId}`).set({
         status: state,
         lastCheckedAt: nowIso,
-        appId: appId
+        appId: appId,
+        app_id: appId
       }, { merge: true }).catch(() => {});
 
       return res.json({
@@ -362,7 +363,8 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       lastCheckedAt: nowIso,
       deviceInfo: device_info || 'Dispositivo Android',
       createdAt: nowIso,
-      appId: appId
+      appId: appId,
+      app_id: appId
     };
 
     await db.collection('trials').doc(newTrial.id).set(newTrial);
@@ -565,7 +567,8 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
       activatedAt: license.activatedAt || now,
       lastValidatedAt: now,
       currentToken: token,
-      appId: license.appId || appId
+      appId: license.appId || license.app_id || appId,
+      app_id: license.app_id || license.appId || appId
     }, { merge: true });
 
     // Mark trial converted if exists
@@ -713,7 +716,8 @@ apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
       expiresAt,
       licenseKey: null,
       paidAt: null,
-      appId
+      appId,
+      app_id: appId
     };
 
     const saleRecord = {
@@ -728,7 +732,8 @@ apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
       pagseguroOrderId: orderId,
       createdAt: now,
       paidAt: null,
-      appId
+      appId,
+      app_id: appId
     };
 
     // Save directly to Firestore
@@ -844,7 +849,7 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
     if (orderDoc && orderDoc.exists) {
       const data = orderDoc.data();
       deviceId = data?.deviceId || '';
-      appId = data?.appId || appId;
+      appId = data?.app_id || data?.appId || appId;
     }
 
     const saleDoc = await db.collection('sales').doc(targetId).get().catch(() => null);
@@ -852,7 +857,13 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
       const data = saleDoc.data();
       deviceId = deviceId || data?.clientId || '';
       clientName = data?.clientName || clientName;
-      appId = data?.appId || appId;
+      appId = data?.app_id || data?.appId || appId;
+    }
+
+    const hasDevice = Boolean(deviceId && deviceId !== 'android-user');
+    let token = null;
+    if (hasDevice) {
+      token = generateToken(newLicenseKey, deviceId).token;
     }
 
     const newLicense = {
@@ -861,14 +872,25 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
       clientId: deviceId || targetId,
       clientName,
       saleId: targetId,
-      status: 'inativa',
-      deviceId: deviceId || null,
-      deviceInfo: 'Android APK',
-      activatedAt: null,
-      lastValidatedAt: null,
+      status: hasDevice ? 'ativa' : 'inativa',
+      deviceId: hasDevice ? deviceId : null,
+      deviceInfo: hasDevice ? 'Android APK (Zero-Touch)' : 'Android APK',
+      activatedAt: hasDevice ? now : null,
+      lastValidatedAt: hasDevice ? now : null,
+      currentToken: token,
       createdAt: now,
-      appId
+      appId,
+      app_id: appId
     };
+
+    if (hasDevice) {
+      await db.collection('trials').doc(`trial_${deviceId}`).set({
+        status: 'CONVERTED_TO_LICENSE',
+        lastCheckedAt: now,
+        appId,
+        app_id: appId
+      }, { merge: true }).catch(() => {});
+    }
 
     // Write all updates directly to Firestore
     await db.collection('orders').doc(targetId).set({
@@ -876,21 +898,25 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
       status: 'PAID',
       paidAt: now,
       licenseKey: newLicenseKey,
-      deviceId: deviceId || null
+      deviceId: deviceId || null,
+      appId,
+      app_id: appId
     }, { merge: true });
 
     await db.collection('sales').doc(targetId).set({
       id: targetId,
       clientId: deviceId || 'android-user',
       clientName,
-      product: 'WhatsTransmissão PRO - Vitalício',
+      product: appId === 'whatsresponder' ? 'Whats Responder - Vitalício' : 'WhatsTransmissão PRO - Vitalício',
       amount: 239.90,
       status: 'pago',
       paymentMethod: 'Pix Oficial',
       pixCode: FIXED_PIX_CODE,
       pagseguroOrderId: targetId,
       createdAt: now,
-      paidAt: now
+      paidAt: now,
+      appId,
+      app_id: appId
     }, { merge: true });
 
     await db.collection('licenses').doc(newLicense.id).set(newLicense);

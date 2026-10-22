@@ -15,6 +15,10 @@ interface Client {
   name: string;
   phone: string;
   email: string;
+  deviceId?: string;
+  deviceInfo?: string;
+  licenseKey?: string;
+  appId?: string;
   createdAt: string;
 }
 
@@ -116,7 +120,7 @@ export default function App() {
   // Modals state
   const [showClientModal, setShowClientModal] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '' });
+  const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', deviceId: '', licenseKey: '', appId: 'whatstransmissao' });
 
   const [showSaleModal, setShowSaleModal] = useState(false);
   const [saleForm, setSaleForm] = useState({ clientId: '', amount: 239.90, paymentMethod: 'Pix Oficial' });
@@ -244,13 +248,20 @@ export default function App() {
   // CLIENT ACTIONS
   const handleOpenNewClientModal = () => {
     setEditingClient(null);
-    setClientForm({ name: '', phone: '', email: '' });
+    setClientForm({ name: '', phone: '', email: '', deviceId: '', licenseKey: '', appId: 'whatstransmissao' });
     setShowClientModal(true);
   };
 
   const handleOpenEditClientModal = (client: Client) => {
     setEditingClient(client);
-    setClientForm({ name: client.name, phone: client.phone, email: client.email });
+    setClientForm({ 
+      name: client.name, 
+      phone: client.phone, 
+      email: client.email,
+      deviceId: client.deviceId || '',
+      licenseKey: client.licenseKey || '',
+      appId: client.appId || 'whatstransmissao'
+    });
     setShowClientModal(true);
   };
 
@@ -262,12 +273,19 @@ export default function App() {
     }
 
     try {
+      const clientData = {
+        name: clientForm.name.trim(),
+        phone: clientForm.phone.trim(),
+        email: clientForm.email.trim(),
+        deviceId: clientForm.deviceId.trim() || null,
+        licenseKey: clientForm.licenseKey.trim() || null,
+        appId: clientForm.appId || 'whatstransmissao'
+      };
+
       if (editingClient) {
         // Direct Firestore update
         await updateDoc(doc(db, 'clients', editingClient.id), {
-          name: clientForm.name.trim(),
-          phone: clientForm.phone.trim(),
-          email: clientForm.email.trim(),
+          ...clientData,
           updatedAt: new Date().toISOString()
         }).catch(err => console.warn('Firestore updateDoc warning:', err));
 
@@ -278,9 +296,7 @@ export default function App() {
           headers,
           body: JSON.stringify({
             id: editingClient.id,
-            name: clientForm.name.trim(),
-            phone: clientForm.phone.trim(),
-            email: clientForm.email.trim()
+            ...clientData
           })
         }).catch(err => console.warn('Server client save warning:', err));
 
@@ -289,9 +305,7 @@ export default function App() {
       } else {
         // Direct Firestore create
         await addDoc(collection(db, 'clients'), {
-          name: clientForm.name.trim(),
-          phone: clientForm.phone.trim(),
-          email: clientForm.email.trim(),
+          ...clientData,
           createdAt: new Date().toISOString()
         }).catch(async (err) => {
           console.warn('Firestore addDoc fallback:', err);
@@ -299,11 +313,7 @@ export default function App() {
           await fetch('/api/client/save', {
             method: 'POST',
             headers,
-            body: JSON.stringify({
-              name: clientForm.name.trim(),
-              phone: clientForm.phone.trim(),
-              email: clientForm.email.trim()
-            })
+            body: JSON.stringify(clientData)
           });
         });
 
@@ -313,7 +323,7 @@ export default function App() {
 
       setShowClientModal(false);
       setEditingClient(null);
-      setClientForm({ name: '', phone: '', email: '' });
+      setClientForm({ name: '', phone: '', email: '', deviceId: '', licenseKey: '', appId: 'whatstransmissao' });
       fetchAllData();
     } catch (err: any) {
       console.error('Save client error:', err);
@@ -1092,6 +1102,8 @@ export default function App() {
                     <tr className="border-b border-zinc-800 text-xs font-mono text-zinc-400 uppercase bg-zinc-900/80">
                       <th className="p-4">Cliente</th>
                       <th className="p-4">Contato</th>
+                      <th className="p-4">Dispositivo / Aparelho</th>
+                      <th className="p-4">Licença Atrelada</th>
                       <th className="p-4">Cadastrado em</th>
                       <th className="p-4 text-right">Ações</th>
                     </tr>
@@ -1101,7 +1113,9 @@ export default function App() {
                       .filter(c => 
                         c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        c.phone.includes(searchTerm)
+                        c.phone.includes(searchTerm) ||
+                        (c.deviceId && c.deviceId.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                        (c.licenseKey && c.licenseKey.toLowerCase().includes(searchTerm.toLowerCase()))
                       )
                       .map((client) => (
                         <tr key={client.id} className="hover:bg-zinc-800/40 transition">
@@ -1112,6 +1126,27 @@ export default function App() {
                           <td className="p-4 text-zinc-300">
                             <div>{client.email}</div>
                             <div className="text-xs text-zinc-500">{client.phone}</div>
+                          </td>
+                          <td className="p-4 text-zinc-300">
+                            <div className="space-y-1">
+                              {client.deviceId ? (
+                                <div className="font-mono text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30 inline-block">
+                                  ID: {client.deviceId}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-zinc-500">Nenhum aparelho atrelado</span>
+                              )}
+                              <div>{renderAppBadge(client.appId)}</div>
+                            </div>
+                          </td>
+                          <td className="p-4 text-zinc-300">
+                            {client.licenseKey ? (
+                              <div className="font-mono text-xs text-cyan-400 bg-cyan-500/10 px-2 py-1 rounded-lg border border-cyan-500/30 inline-block">
+                                {client.licenseKey}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-zinc-500">Sem licença atrelada</span>
+                            )}
                           </td>
                           <td className="p-4 text-zinc-400 font-mono text-xs">
                             {new Date(client.createdAt).toLocaleDateString()}
@@ -1140,7 +1175,7 @@ export default function App() {
                       ))}
                     {clients.length === 0 && (
                       <tr>
-                        <td colSpan={4} className="p-8 text-center text-zinc-500">
+                        <td colSpan={6} className="p-8 text-center text-zinc-500">
                           Nenhum cliente cadastrado. Clique no botão "Novo Cliente" para adicionar.
                         </td>
                       </tr>
@@ -1741,6 +1776,37 @@ export default function App() {
                   onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">ID do Dispositivo (Device ID)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: android_device_id_abc123 (Opcional)"
+                  value={clientForm.deviceId}
+                  onChange={(e) => setClientForm({ ...clientForm, deviceId: e.target.value })}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Chave de Licença Atrelada</label>
+                <input
+                  type="text"
+                  placeholder="Ex: WST-PRO-XXXX-XXXX-XXXX (Opcional)"
+                  value={clientForm.licenseKey}
+                  onChange={(e) => setClientForm({ ...clientForm, licenseKey: e.target.value })}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-emerald-500 transition"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Aplicativo Vinculado</label>
+                <select
+                  value={clientForm.appId}
+                  onChange={(e) => setClientForm({ ...clientForm, appId: e.target.value })}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition"
+                >
+                  <option value="whatstransmissao">WhatsTransmissão PRO</option>
+                  <option value="whatsresponder">Whats Responder</option>
+                </select>
               </div>
               <div className="flex justify-end space-x-3 pt-2">
                 <button

@@ -25,10 +25,10 @@ const FIREBASE_CONFIG = {
   firestoreDatabaseId: 'ai-studio-56f22fec-68b1-4f1c-9084-ced03b254908'
 };
 
-/* ==========================================================================
-   Firebase Admin Initialization (100% Direct Firestore Persistence)
-   Supports FIREBASE_SERVICE_ACCOUNT env var (JSON string or Base64) in Vercel
-   ========================================================================== */
+const targetFirestoreDbId = process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || FIREBASE_CONFIG.firestoreDatabaseId;
+
+let firebaseAdminApp: any = null;
+
 // Inicializa o Firebase para cada instância da Vercel
 if (!getApps().length) {
   try {
@@ -41,19 +41,27 @@ if (!getApps().length) {
       const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
       serviceAccount = JSON.parse(decoded);
     }
-    initializeApp({
+    firebaseAdminApp = initializeApp({
       credential: cert(serviceAccount),
       projectId: serviceAccount.project_id || process.env.FIREBASE_PROJECT_ID || FIREBASE_CONFIG.projectId
     });
-    console.log('Firebase Admin inicializado com sucesso.');
+    console.log(`Firebase Admin inicializado com sucesso (banco: ${targetFirestoreDbId}).`);
   } catch (error) {
     console.error('Erro ao inicializar Firebase Admin:', error);
   }
+} else {
+  firebaseAdminApp = getApps()[0];
 }
 
-const db = getFirestore(FIREBASE_CONFIG.firestoreDatabaseId);
+const db = firebaseAdminApp 
+  ? getFirestore(firebaseAdminApp, targetFirestoreDbId) 
+  : getFirestore(targetFirestoreDbId);
 
 function getDb(): Firestore {
+  const currentApp = getApps()[0] || firebaseAdminApp;
+  if (currentApp) {
+    return getFirestore(currentApp, targetFirestoreDbId);
+  }
   return db;
 }
 
@@ -215,6 +223,11 @@ async function findTrialByDeviceId(db: Firestore, deviceId: string): Promise<any
     const doc = querySnap.docs[0];
     return { id: doc.id, ...(doc.data() as any) };
   }
+  const querySnapSnake = await db.collection('trials').where('device_id', '==', deviceId).limit(1).get().catch(() => null);
+  if (querySnapSnake && !querySnapSnake.empty) {
+    const doc = querySnapSnake.docs[0];
+    return { id: doc.id, ...(doc.data() as any) };
+  }
   return null;
 }
 
@@ -327,14 +340,23 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
     // 3. Query existing trial in Firestore
     const existingTrial: any = await findTrialByDeviceId(db, devId);
     if (existingTrial) {
-      const expiresAt = new Date(existingTrial.trialExpiresAt);
+      const startedAt = existingTrial.trialStartedAt || existingTrial.trial_started_at || nowIso;
+      const expAt = existingTrial.trialExpiresAt || existingTrial.trial_expires_at || new Date(now.getTime() + 120 * 60 * 1000).toISOString();
+      const expiresAt = new Date(expAt);
       const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
       const state = remainingSeconds > 0 ? 'TRIAL_ACTIVE' : 'TRIAL_EXPIRED';
 
-      // Update lastCheckedAt and state directly in Firestore
+      // Update lastCheckedAt and state directly in Firestore with guaranteed camelCase + snake_case
       await db.collection('trials').doc(existingTrial.id || `trial_${devId}`).set({
         status: state,
+        deviceId: devId,
+        device_id: devId,
+        trialStartedAt: startedAt,
+        trial_started_at: startedAt,
+        trialExpiresAt: expAt,
+        trial_expires_at: expAt,
         lastCheckedAt: nowIso,
+        last_checked_at: nowIso,
         appId: appId,
         app_id: appId
       }, { merge: true }).catch(() => {});
@@ -342,8 +364,10 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       return res.json({
         success: true,
         state,
-        trial_started_at: existingTrial.trialStartedAt,
-        trial_expires_at: existingTrial.trialExpiresAt,
+        trial_started_at: startedAt,
+        trialStartedAt: startedAt,
+        trial_expires_at: expAt,
+        trialExpiresAt: expAt,
         remaining_seconds: remainingSeconds,
         message: state === 'TRIAL_ACTIVE'
           ? `Teste gratuito ativo! Restam ${Math.floor(remainingSeconds / 60)} minutos.`
@@ -353,16 +377,24 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
 
     // 4. Create new 120-minute trial directly in Firestore
     const expiresAt = new Date(now.getTime() + 120 * 60 * 1000);
+    const expIso = expiresAt.toISOString();
     const newTrial = {
       id: `trial_${devId}`,
       deviceId: devId,
+      device_id: devId,
       installationUuid: devId,
+      installation_uuid: devId,
       status: 'TRIAL_ACTIVE',
       trialStartedAt: nowIso,
-      trialExpiresAt: expiresAt.toISOString(),
+      trial_started_at: nowIso,
+      trialExpiresAt: expIso,
+      trial_expires_at: expIso,
       lastCheckedAt: nowIso,
+      last_checked_at: nowIso,
       deviceInfo: device_info || 'Dispositivo Android',
+      device_info: device_info || 'Dispositivo Android',
       createdAt: nowIso,
+      created_at: nowIso,
       appId: appId,
       app_id: appId
     };
@@ -373,7 +405,9 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       success: true,
       state: 'TRIAL_ACTIVE',
       trial_started_at: nowIso,
-      trial_expires_at: expiresAt.toISOString(),
+      trialStartedAt: nowIso,
+      trial_expires_at: expIso,
+      trialExpiresAt: expIso,
       remaining_seconds: 7200,
       message: 'Teste gratuito de 2 horas iniciado com sucesso!'
     });
@@ -454,20 +488,23 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
       // 3. Check trial status in Firestore
       const trial: any = await findTrialByDeviceId(db, devId);
       if (trial) {
-        const expiresAt = new Date(trial.trialExpiresAt);
+        const expAt = trial.trialExpiresAt || trial.trial_expires_at || serverTime;
+        const expiresAt = new Date(expAt);
         const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
         const state = remainingSeconds > 0 ? 'TRIAL_ACTIVE' : 'TRIAL_EXPIRED';
 
         await db.collection('trials').doc(trial.id || `trial_${devId}`).set({
           status: state,
-          lastCheckedAt: serverTime
+          lastCheckedAt: serverTime,
+          last_checked_at: serverTime
         }, { merge: true }).catch(() => {});
 
         return res.json({
           success: true,
           state,
           remaining_seconds: remainingSeconds,
-          trial_expires_at: trial.trialExpiresAt,
+          trial_expires_at: expAt,
+          trialExpiresAt: expAt,
           license_key: licKey,
           server_time: serverTime
         });
@@ -691,9 +728,11 @@ apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
    ========================================================================== */
 apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
   try {
-    const { device_id, amount, description, app_id } = req.body || {};
-    const devId = (device_id || '').trim();
-    const appId = (app_id || 'whatstransmissao').trim();
+    const { device_id, deviceId, amount, description, app_id, appId, clientName, client_name } = req.body || {};
+    const devId = (device_id || deviceId || '').trim();
+    const application = (app_id || appId || 'whatstransmissao').trim();
+    const numericAmount = typeof amount === 'number' ? amount : (parseFloat(amount) || 239.90);
+    const resolvedClientName = clientName || client_name || (devId ? `APK Android (${devId.substring(0, 8)})` : 'Cliente Pix');
 
     if (!devId) {
       return res.status(400).json({ success: false, error: 'device_id é obrigatório para gerar o pedido Pix.' });
@@ -706,37 +745,42 @@ apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
 
     const orderRecord = {
       orderId,
+      id: orderId,
       deviceId: devId,
-      amount: 239.90,
-      description: description || 'Licença vitalícia WhatsTransmissão PRO',
+      device_id: devId,
+      clientId: devId,
+      clientName: resolvedClientName,
+      amount: numericAmount,
+      description: description || (application === 'whatsresponder' ? 'Licença vitalícia Whats Responder' : 'Licença vitalícia WhatsTransmissão PRO'),
       status: 'PENDING',
       pixPayload: FIXED_PIX_CODE,
+      pix_code: FIXED_PIX_CODE,
       pixQrCode: FIXED_QR_CODE_IMAGE,
       createdAt: now,
       expiresAt,
       licenseKey: null,
       paidAt: null,
-      appId,
-      app_id: appId
+      appId: application,
+      app_id: application
     };
 
     const saleRecord = {
       id: orderId,
       clientId: devId,
-      clientName: `APK Android (${devId.substring(0, 8)})`,
-      product: appId === 'whatsresponder' ? 'Whats Responder - Vitalício' : 'WhatsTransmissão PRO - Vitalício',
-      amount: 239.90,
+      clientName: resolvedClientName,
+      product: application === 'whatsresponder' ? 'Whats Responder - Vitalício' : 'WhatsTransmissão PRO - Vitalício',
+      amount: numericAmount,
       status: 'pendente',
       paymentMethod: 'Pix Oficial',
       pixCode: FIXED_PIX_CODE,
       pagseguroOrderId: orderId,
       createdAt: now,
       paidAt: null,
-      appId,
-      app_id: appId
+      appId: application,
+      app_id: application
     };
 
-    // Save directly to Firestore
+    // Save directly to Firestore: orders AND sales (same orderId as document ID)
     await db.collection('orders').doc(orderId).set(orderRecord);
     await db.collection('sales').doc(orderId).set(saleRecord);
 
@@ -1056,5 +1100,135 @@ apiRouter.post('/api/payment/create-pix', async (req: Request, res: Response) =>
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/* ==========================================================================
+   2.8 POST /api/ai/chat
+   Endpoint para respostas automáticas de IA do Whats Responder.
+   Suporta NVIDIA NIM (NVIDIA_API_KEY), OpenRouter (OPENROUTER_API_KEY)
+   e Google Gemini (GEMINI_API_KEY) com fallback inteligente.
+   ========================================================================== */
+apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const message = body.message || body.prompt || body.text || '';
+    const systemPrompt = body.system_prompt || body.systemPrompt || body.system || 'Você é um assistente virtual inteligente e prestativo para WhatsApp (Whats Responder). Responda de forma clara, educada, concisa e amigável em português.';
+
+    let messages: Array<{ role: string; content: string }> = [];
+    if (Array.isArray(body.messages) && body.messages.length > 0) {
+      messages = body.messages;
+    } else if (message) {
+      messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: String(message) }
+      ];
+    } else {
+      return res.status(400).json({ success: false, error: 'Mensagem não fornecida. Envie "message" ou "messages".' });
+    }
+
+    let reply = '';
+
+    // 1. Provedor NVIDIA NIM se configurado
+    if (process.env.NVIDIA_API_KEY && !reply) {
+      try {
+        const nvidiaModel = body.model || 'meta/llama-3.1-8b-instruct';
+        const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NVIDIA_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: nvidiaModel,
+            messages,
+            temperature: 0.7,
+            max_tokens: 1024
+          })
+        });
+
+        if (nvidiaRes.ok) {
+          const data: any = await nvidiaRes.json();
+          reply = data?.choices?.[0]?.message?.content || '';
+        } else {
+          console.warn('NVIDIA API status:', nvidiaRes.status);
+        }
+      } catch (err: any) {
+        console.error('NVIDIA API error:', err?.message || err);
+      }
+    }
+
+    // 2. Provedor OpenRouter se configurado
+    if (process.env.OPENROUTER_API_KEY && !reply) {
+      try {
+        const openrouterModel = body.model || 'meta-llama/llama-3.2-3b-instruct';
+        const openrouterRes = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+            'HTTP-Referer': 'https://whatstransmissao.vercel.app',
+            'X-Title': 'Whats Responder'
+          },
+          body: JSON.stringify({
+            model: openrouterModel,
+            messages,
+            temperature: 0.7,
+            max_tokens: 1024
+          })
+        });
+
+        if (openrouterRes.ok) {
+          const data: any = await openrouterRes.json();
+          reply = data?.choices?.[0]?.message?.content || '';
+        } else {
+          console.warn('OpenRouter API status:', openrouterRes.status);
+        }
+      } catch (err: any) {
+        console.error('OpenRouter API error:', err?.message || err);
+      }
+    }
+
+    // 3. Provedor Google Gemini se configurado
+    if (process.env.GEMINI_API_KEY && !reply) {
+      try {
+        const { GoogleGenAI } = await import('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const userPrompt = messages.filter(m => m.role === 'user').map(m => m.content).join('\n') || message;
+        const geminiRes = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: userPrompt,
+          config: {
+            systemInstruction: systemPrompt
+          }
+        });
+        reply = geminiRes.text || '';
+      } catch (err: any) {
+        console.error('Gemini API error:', err?.message || err);
+      }
+    }
+
+    // 4. Fallback padrão se nenhuma chave estiver configurada ou se houver falha
+    if (!reply) {
+      reply = `Olá! Recebemos sua mensagem: "${String(message).substring(0, 60)}". Esta é uma resposta automática do Whats Responder. Em breve entraremos em contato com você!`;
+    }
+
+    return res.status(200).json({
+      success: true,
+      reply,
+      message: reply,
+      text: reply,
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: reply
+          }
+        }
+      ]
+    });
+  } catch (error: any) {
+    console.error('AI chat endpoint error:', error);
+    return res.status(500).json({ success: false, error: 'Erro no endpoint de IA: ' + error.message });
   }
 });

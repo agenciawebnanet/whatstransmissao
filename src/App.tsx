@@ -30,6 +30,7 @@ interface Sale {
   pagseguroOrderId?: string;
   createdAt: string;
   paidAt?: string | null;
+  appId?: string;
 }
 
 interface License {
@@ -44,6 +45,7 @@ interface License {
   activatedAt?: string | null;
   lastValidatedAt?: string | null;
   createdAt: string;
+  appId?: string;
 }
 
 interface Trial {
@@ -56,7 +58,19 @@ interface Trial {
   trialExpiresAt: string;
   lastCheckedAt: string;
   deviceInfo?: string;
+  appId?: string;
 }
+
+const renderAppBadge = (appId?: string) => {
+  const isResponder = appId === 'whatsresponder';
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono uppercase border ${
+      isResponder ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+    }`}>
+      {isResponder ? 'Whats Responder' : 'WhatsTransmissão'}
+    </span>
+  );
+};
 
 interface AuditLog {
   id: string;
@@ -1170,7 +1184,10 @@ export default function App() {
                     {sales.map((sale) => (
                       <tr key={sale.id} className="hover:bg-zinc-800/40 transition">
                         <td className="p-4 font-medium text-white">
-                          <div>{sale.clientName}</div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-1">
+                            <span>{sale.clientName}</span>
+                            {renderAppBadge(sale.appId)}
+                          </div>
                           <div className="text-xs text-zinc-500 font-mono">Venda ID: {sale.id}</div>
                         </td>
                         <td className="p-4 text-zinc-300">
@@ -1269,7 +1286,8 @@ export default function App() {
                           </button>
                         </td>
                         <td className="p-4 text-zinc-300">
-                          {lic.clientName}
+                          <div className="font-semibold">{lic.clientName}</div>
+                          <div className="mt-1">{renderAppBadge(lic.appId)}</div>
                         </td>
                         <td className="p-4">
                           <div className="space-y-1">
@@ -1368,7 +1386,8 @@ export default function App() {
                       return (
                         <tr key={trial.id} className="hover:bg-zinc-800/40 transition">
                           <td className="p-4 font-mono text-xs text-white">
-                            {trial.deviceId}
+                            <div className="font-bold">{trial.deviceId}</div>
+                            <div className="mt-1">{renderAppBadge(trial.appId)}</div>
                           </td>
                           <td className="p-4 text-zinc-300 text-xs">
                             {trial.deviceInfo || 'Android Device'}

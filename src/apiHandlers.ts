@@ -5,6 +5,9 @@ import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import crypto from 'crypto';
 
+/* ==========================================================================
+   Environment & Security Assertions (Fail-Fast on Missing Secrets)
+   ========================================================================== */
 if (!process.env.HMAC_SECRET) {
   throw new Error('HMAC_SECRET não configurado');
 }
@@ -24,6 +27,7 @@ const targetFirestoreDbId = process.env.FIRESTORE_DATABASE_ID || process.env.VIT
 
 let firebaseAdminApp: any = null;
 
+// Inicializa o Firebase para cada instância da Vercel
 if (!getApps().length) {
   try {
     const serviceAccountRaw = process.env.FIREBASE_SERVICE_ACCOUNT || '{}';
@@ -55,6 +59,12 @@ function getDb(): Firestore {
   return getFirestore(currentApp, targetFirestoreDbId);
 }
 
+
+
+/* ==========================================================================
+   Admin Authentication Middleware (Authorization: Bearer <firebase_id_token>)
+   Verifica token com Firebase Auth e checa se UID está na coleção 'admins'
+   ========================================================================== */
 export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -71,7 +81,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       success: false,
       state: 'UNAUTHORIZED',
       error: 'Token de autenticação vazio.'
-    });w
+    });
   }
 
   try {
@@ -121,9 +131,11 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
   }
 }
 
+
 export const FIXED_PIX_CODE = '00020126720014BR.GOV.BCB.PIX013639fe1e46-001d-499e-8bbd-4bd9a0746e6d0210Vitalicio 5204000053039865406239.905802BR5925PEDRO IGOR ALVES DA SILVA6009SAO PAULO622605224XFv7wymjQUh3OViUZlCx56304A298';
 export const FIXED_QR_CODE_IMAGE = 'https://i.ibb.co/HfyQkFbT/image.png';
 
+// Generate 7-day HMAC token for offline validation in Android APK
 function generateToken(key: string, deviceId: string): { token: string; expiresAt: string } {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const payload = {
@@ -172,6 +184,7 @@ function verifyToken(key: string, deviceId: string, tokenStr: string): { valid: 
   }
 }
 
+// Firestore Query Helpers
 async function findLicenseByKey(db: Firestore, key: string): Promise<any> {
   if (!key) return null;
   const docSnap = await db.collection('licenses').doc(`lic_${key}`).get().catch(() => null);
@@ -220,6 +233,7 @@ async function findTrialByDeviceId(db: Firestore, deviceId: string): Promise<any
 
 export const apiRouter = express.Router();
 
+// CORS and response formatting middleware
 apiRouter.use((req: any, res: any, next: any) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, HEAD');
@@ -260,13 +274,17 @@ apiRouter.use((req: any, res: any, next: any) => {
   next();
 });
 
+/**
+ * Parse do corpo da requisição à prova de falhas:
+ * Trata casos de corpo vazio, retries do app Android ou parsing prévio na Vercel/Express.
+ */
 export function parseBody(req: Request): Record<string, any> {
   let body = (req as any).body;
   if (typeof body === 'string') {
     try {
       body = JSON.parse(body.trim() || '{}');
     } catch (e) {
-      body = {};
+      body = {}; // Se falhar, assume objeto vazio para não quebrar o servidor
     }
   } else if (!body || typeof body !== 'object') {
     body = {};
@@ -274,6 +292,7 @@ export function parseBody(req: Request): Record<string, any> {
   return body;
 }
 
+// Middleware de normalização do corpo da requisição
 apiRouter.use((req: any, res: any, next: any) => {
   let body = req.body;
   if (typeof body === 'string') {
@@ -289,6 +308,11 @@ apiRouter.use((req: any, res: any, next: any) => {
   next();
 });
 
+/* ==========================================================================
+   2.1 POST /api/trial/start
+   Inicia o teste gratuito de 120 minutos para o dispositivo no Firestore.
+   Se já existir teste, não reinicia — retorna o estado atual e remaining_seconds.
+   ========================================================================== */
 apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
@@ -304,6 +328,7 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
     const now = new Date();
     const nowIso = now.toISOString();
 
+    // 1. Check if device has blocked license
     const devLicenses = await findLicensesByDeviceId(db, devId);
     const blockedLic = devLicenses.find((l: any) => l.status === 'bloqueada' || l.status === 'revogada');
     if (blockedLic) {
@@ -314,6 +339,7 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       });
     }
 
+    // 2. Check if device already has active license
     const activeLic = devLicenses.find((l: any) => l.status === 'ativa');
     if (activeLic) {
       return res.json({
@@ -324,6 +350,7 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       });
     }
 
+    // 3. Query existing trial in Firestore
     const existingTrial: any = await findTrialByDeviceId(db, devId);
     if (existingTrial) {
       const startedAt = existingTrial.trialStartedAt || existingTrial.trial_started_at || nowIso;
@@ -332,6 +359,7 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       const remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
       const state = remainingSeconds > 0 ? 'TRIAL_ACTIVE' : 'TRIAL_EXPIRED';
 
+      // Update lastCheckedAt and state directly in Firestore with guaranteed camelCase + snake_case
       await db.collection('trials').doc(existingTrial.id || `trial_${devId}`).set({
         status: state,
         deviceId: devId,
@@ -360,6 +388,7 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
       });
     }
 
+    // 4. Create new 120-minute trial directly in Firestore
     const expiresAt = new Date(now.getTime() + 120 * 60 * 1000);
     const expIso = expiresAt.toISOString();
     const newTrial = {
@@ -401,6 +430,11 @@ apiRouter.post('/api/trial/start', async (req: Request, res: Response) => {
   }
 });
 
+/* ==========================================================================
+   2.2 POST /api/trial/status
+   Consulta o estado atual do dispositivo no Firestore. Contagem em UTC no servidor.
+   Retorna sempre server_time. Se não existir, retorna state: UNKNOWN (nunca 404).
+   ========================================================================== */
 apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
   try {
     const serverTime = new Date().toISOString();
@@ -423,6 +457,7 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
 
     const db = getDb();
 
+    // 1. Check by license_key if provided
     if (licKey) {
       const lic: any = await findLicenseByKey(db, licKey);
       if (lic) {
@@ -449,6 +484,7 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
       }
     }
 
+    // 2. Check by device_id in Firestore
     if (devId) {
       const devLicenses = await findLicensesByDeviceId(db, devId);
       const blockedLic = devLicenses.find((l: any) => l.status === 'bloqueada' || l.status === 'revogada');
@@ -475,6 +511,7 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
         });
       }
 
+      // 3. Check trial status in Firestore
       const trial: any = await findTrialByDeviceId(db, devId);
       if (trial) {
         const expAt = trial.trialExpiresAt || trial.trial_expires_at || serverTime;
@@ -500,6 +537,7 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
       }
     }
 
+    // 4. Device not registered / unknown
     return res.json({
       success: true,
       state: 'UNKNOWN',
@@ -521,6 +559,11 @@ apiRouter.post('/api/trial/status', async (req: Request, res: Response) => {
   }
 });
 
+/* ==========================================================================
+   2.3 POST /api/license/activate
+   Ativa a licença vitalícia no dispositivo diretamente no Firestore.
+   Emite token HMAC com validade de 7 dias para uso offline.
+   ========================================================================== */
 apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
@@ -557,6 +600,7 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if license is blocked/revoked
     if (license.status === 'bloqueada' || license.status === 'revogada') {
       return res.status(403).json({
         success: false,
@@ -565,6 +609,7 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if license is already bound to another device
     if (license.deviceId && license.deviceId !== devId) {
       return res.status(409).json({
         success: false,
@@ -573,6 +618,7 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this device already has another active license
     const devLicenses = await findLicensesByDeviceId(db, devId);
     const otherDevLic = devLicenses.find((l: any) => l.status === 'ativa' && l.key !== licKey);
     if (otherDevLic) {
@@ -586,6 +632,7 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
     const now = new Date().toISOString();
     const { token, expiresAt } = generateToken(licKey, devId);
 
+    // Save activation directly to Firestore
     const targetDocId = license.id || `lic_${licKey}`;
     await db.collection('licenses').doc(targetDocId).set({
       deviceId: devId,
@@ -598,6 +645,7 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
       app_id: license.app_id || license.appId || appId
     }, { merge: true });
 
+    // Mark trial converted if exists
     await db.collection('trials').doc(`trial_${devId}`).set({
       status: 'CONVERTED_TO_LICENSE',
       lastCheckedAt: now
@@ -622,6 +670,10 @@ apiRouter.post('/api/license/activate', async (req: Request, res: Response) => {
   }
 });
 
+/* ==========================================================================
+   2.4 POST /api/license/validate
+   Revalida a licença com token HMAC ou chave. Renova a janela offline de 7 dias.
+   ========================================================================== */
 apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
   try {
     const serverTime = new Date().toISOString();
@@ -634,6 +686,7 @@ apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, state: 'INVALID_REQUEST', message: 'device_id é obrigatório.', error: 'device_id é obrigatório.' });
     }
 
+    // Verify cryptographic token if provided
     if (token) {
       const tokenVerification = verifyToken(licKey, devId, token);
       if (!tokenVerification.valid) {
@@ -654,6 +707,7 @@ apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
       license = devLicenses.find((l: any) => l.status === 'ativa');
     }
 
+    // If verified offline by valid HMAC token, allow renewal
     if (!license && token) {
       const tokenCheck = verifyToken(licKey, devId, token);
       if (tokenCheck.valid) {
@@ -681,6 +735,7 @@ apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, state: 'DEVICE_MISMATCH', message: 'Dispositivo não autorizado para esta chave.' });
     }
 
+    // Refresh last validated timestamp and issue fresh token
     const { token: newToken, expiresAt: newExpiresAt } = generateToken(license.key, devId);
     await db.collection('licenses').doc(license.id || `lic_${license.key}`).set({
       lastValidatedAt: serverTime,
@@ -705,6 +760,10 @@ apiRouter.post('/api/license/validate', async (req: Request, res: Response) => {
   }
 });
 
+/* ==========================================================================
+   2.5 POST /api/pix/create
+   Cria um pedido Pix no valor de R$ 239,90 com o Pix estático oficial no Firestore.
+   ========================================================================== */
 apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
@@ -760,6 +819,7 @@ apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
       app_id: application
     };
 
+    // Save directly to Firestore: orders AND sales (same orderId as document ID)
     await db.collection('orders').doc(orderId).set(orderRecord);
     await db.collection('sales').doc(orderId).set(saleRecord);
 
@@ -777,6 +837,10 @@ apiRouter.post('/api/pix/create', async (req: Request, res: Response) => {
   }
 });
 
+/* ==========================================================================
+   2.6 GET /api/order/:order_id e GET /api/order?order_id=...
+   Consulta do estado do pedido pelo APK via polling diretamente no Firestore.
+   ========================================================================== */
 const handleGetOrder = async (req: Request, res: Response) => {
   try {
     const orderId = (req.params.order_id || (req.query.order_id as string) || '').trim();
@@ -843,6 +907,10 @@ const handleGetOrder = async (req: Request, res: Response) => {
 apiRouter.get('/api/order/:order_id', handleGetOrder);
 apiRouter.get('/api/order', handleGetOrder);
 
+/* ==========================================================================
+   2.7 POST /api/order/confirm-manual
+   Confirmação manual no painel com gravação 100% direta no Firestore.
+   ========================================================================== */
 apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
@@ -907,6 +975,7 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
       }, { merge: true }).catch(() => {});
     }
 
+    // Write all updates directly to Firestore
     await db.collection('orders').doc(targetId).set({
       orderId: targetId,
       status: 'PAID',
@@ -948,6 +1017,10 @@ apiRouter.post('/api/order/confirm-manual', requireAdminAuth, async (req: Reques
   }
 });
 
+/* ==========================================================================
+   CRUD Handlers for Web Admin Clients / Sales / Licenses / Trials
+   All writing and deleting directly against Firestore collections
+   ========================================================================== */
 apiRouter.post('/api/client/save', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
@@ -1076,11 +1149,18 @@ apiRouter.post('/api/payment/create-pix', async (req: Request, res: Response) =>
   }
 });
 
+/* ==========================================================================
+   2.8 POST /api/ai/chat
+   Endpoint para respostas automáticas de IA do Whats Responder.
+   Suporta OpenAI (dinâmico), NVIDIA NIM (NVIDIA_API_KEY), OpenRouter (OPENROUTER_API_KEY)
+   e Google Gemini (GEMINI_API_KEY) com fallback inteligente.
+   ========================================================================== */
 apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
   try {
     const body = parseBody(req);
     const message = body.message || body.prompt || body.text || '';
     
+    // Fetch AI context from Firestore
     const db = getDb();
     const settingsDoc = await db.collection('settings').doc('ai_context').get();
     const aiContext = settingsDoc.exists ? (settingsDoc.data() as any).context : '';
@@ -1091,6 +1171,7 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
     let messages: Array<{ role: string; content: string }> = [];
     if (Array.isArray(body.messages) && body.messages.length > 0) {
       messages = body.messages;
+      // Prepend system prompt to the first message if it's a system role, otherwise add it
       if (messages[0]?.role === 'system') {
         messages[0].content = `${systemPrompt}\n\n${messages[0].content}`;
       } else {
@@ -1107,6 +1188,7 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
 
     let reply = '';
 
+    // 1. Provedor OpenAI via importação dinâmica
     if ((process.env.OPENAI_API_KEY || process.env.OPENAI_KEY) && !reply) {
       try {
         const { default: OpenAI } = await import('openai');
@@ -1126,6 +1208,7 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
       }
     }
 
+    // 2. Provedor NVIDIA NIM se configurado
     if (process.env.NVIDIA_API_KEY && !reply) {
       try {
         const nvidiaModel = body.model || 'meta/llama-3.1-8b-instruct';
@@ -1154,6 +1237,7 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
       }
     }
 
+    // 3. Provedor OpenRouter se configurado
     if (process.env.OPENROUTER_API_KEY && !reply) {
       try {
         const openrouterModel = body.model || 'meta-llama/llama-3.2-3b-instruct';
@@ -1184,6 +1268,7 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
       }
     }
 
+    // 3. Provedor Google Gemini se configurado (Refatorado para @google/genai moderno)
     if (process.env.GEMINI_API_KEY && !reply) {
       try {
         const { GoogleGenAI } = await import('@google/genai');
@@ -1192,6 +1277,8 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
           httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
         });
 
+        // Convert messages to @google/genai format
+        // Role mapping: user -> user, model -> model, assistant -> model
         const filteredMessages = messages.filter(m => m.role !== 'system');
         const contents = filteredMessages.map(m => ({
           role: (m.role === 'assistant' || m.role === 'model') ? 'model' : 'user',
@@ -1212,6 +1299,7 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
       }
     }
 
+    // 4. Fallback padrão se nenhuma chave estiver configurada ou se houver falha
     if (!reply) {
       reply = `Olá! Recebemos sua mensagem: "${String(message).substring(0, 60)}". Esta é uma resposta automática do Whats Responder. Em breve entraremos em contato com você!`;
     }
@@ -1236,6 +1324,9 @@ apiRouter.post('/api/ai/chat', async (req: Request, res: Response) => {
   }
 });
 
+/* ==========================================================================
+   2.9 Settings Endpoints (AI Context)
+   ========================================================================== */
 apiRouter.get('/api/settings/get', requireAdminAuth, async (req: Request, res: Response) => {
   try {
     const db = getDb();
@@ -1256,3 +1347,4 @@ apiRouter.post('/api/settings/save', requireAdminAuth, async (req: Request, res:
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
+});

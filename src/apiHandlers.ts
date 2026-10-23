@@ -1,4 +1,3 @@
-```ts
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { initializeApp, getApps, cert } from 'firebase-admin/app';
@@ -72,7 +71,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       success: false,
       state: 'UNAUTHORIZED',
       error: 'Token de autenticação vazio.'
-    });
+    });w
   }
 
   try {
@@ -1257,5 +1256,3 @@ apiRouter.post('/api/settings/save', requireAdminAuth, async (req: Request, res:
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }
-});
-```
